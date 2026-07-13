@@ -1,0 +1,16 @@
+{
+  "name": "Announcement Video Maker",
+  "short_name": "Announcements",
+  "description": "Create captioned church announcement videos from script and audio",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f7f6f2",
+  "theme_color": "#7d5820",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
