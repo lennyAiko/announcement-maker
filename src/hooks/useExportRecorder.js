@@ -11,12 +11,14 @@ function pickMimeType() {
 export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, resolution, onStatus }) {
   const [isExporting, setIsExporting] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
+  const [progress, setProgress] = useState(0);
 
   const chunksRef = useRef([]);
   const audioCtxRef = useRef(null);
   const sourceNodeRef = useRef(null);
   const downloadUrlRef = useRef(null);
   const endedHandlerRef = useRef(null);
+  const timeUpdateHandlerRef = useRef(null);
 
   const getAudioGraph = useCallback(() => {
     if (!audioCtxRef.current) {
@@ -36,6 +38,7 @@ export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, res
     if (!audio || !canvas || isExporting) return;
 
     setIsExporting(true);
+    setProgress(0);
     if (downloadUrlRef.current) {
       URL.revokeObjectURL(downloadUrlRef.current);
       downloadUrlRef.current = null;
@@ -63,10 +66,15 @@ export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, res
       };
       recorder.onstop = () => {
         source.disconnect(dest);
+        if (timeUpdateHandlerRef.current) {
+          audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
+          timeUpdateHandlerRef.current = null;
+        }
         const blob = new Blob(chunksRef.current, { type: mimeType });
         const url = URL.createObjectURL(blob);
         downloadUrlRef.current = url;
         setDownloadUrl(url);
+        setProgress(1);
         setIsExporting(false);
         onStatus(
           'ok',
@@ -84,10 +92,21 @@ export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, res
       endedHandlerRef.current = handleEnded;
       audio.addEventListener('ended', handleEnded, { once: true });
 
+      const handleTimeUpdate = () => {
+        const dur = audio.duration;
+        if (dur > 0) setProgress(Math.min(1, audio.currentTime / dur));
+      };
+      timeUpdateHandlerRef.current = handleTimeUpdate;
+      audio.addEventListener('timeupdate', handleTimeUpdate);
+
       await audio.play();
       onStatus('', 'Recording... keep this tab open until it finishes.');
     } catch (err) {
       setIsExporting(false);
+      if (audio && timeUpdateHandlerRef.current) {
+        audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
+        timeUpdateHandlerRef.current = null;
+      }
       onStatus('warn', `Export failed: ${err.message}. Try Chrome or Edge if you're on another browser.`);
     }
   }, [audioRef, videoElRef, bgType, canvasRef, resolution, isExporting, getAudioGraph, onStatus]);
@@ -98,10 +117,23 @@ export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, res
       if (audio && endedHandlerRef.current) {
         audio.removeEventListener('ended', endedHandlerRef.current);
       }
+      if (audio && timeUpdateHandlerRef.current) {
+        audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
+      }
       if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
       if (audioCtxRef.current) audioCtxRef.current.close();
     };
   }, [audioRef]);
 
-  return { isExporting, downloadUrl, startExport };
+  useEffect(() => {
+    if (!isExporting) return;
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isExporting]);
+
+  return { isExporting, downloadUrl, progress, startExport };
 }

@@ -3,6 +3,7 @@ import './App.css';
 import AudioUploadStep from './components/AudioUploadStep';
 import BackgroundStyleStep from './components/BackgroundStyleStep';
 import CaptionsStep from './components/CaptionsStep';
+import ExportProgressModal from './components/ExportProgressModal';
 import PreviewExportStep from './components/PreviewExportStep';
 import ScriptStep from './components/ScriptStep';
 import { useBackgroundStyle } from './hooks/useBackgroundStyle';
@@ -123,7 +124,7 @@ const App = () => {
     setExportStatus({ tone, message });
   }, []);
 
-  const { isExporting, downloadUrl, startExport } = useExportRecorder({
+  const { isExporting, downloadUrl, progress: exportProgress, startExport } = useExportRecorder({
     audioRef,
     videoElRef,
     bgType,
@@ -412,6 +413,12 @@ const App = () => {
 
       <audio ref={audioRef} preload="metadata" crossOrigin="anonymous" hidden />
       <video ref={videoElRef} muted playsInline loop hidden />
+
+      <ExportProgressModal
+        open={isExporting}
+        progress={exportProgress}
+        message={exportStatus?.tone !== 'warn' ? exportStatus?.message : null}
+      />
     </div>
   );
 };
