@@ -1,7 +1,11 @@
 import { formatTime } from '../lib/captions';
 import StepCard from './StepCard';
 
-export default function AudioUploadStep({ fileName, duration, onFileSelected }) {
+export default function AudioUploadStep({
+  fileName,
+  duration,
+  onFileSelected,
+}) {
   const hasFile = Boolean(fileName);
   return (
     <StepCard number={2} title="Add the audio">
@@ -14,11 +18,13 @@ export default function AudioUploadStep({ fileName, duration, onFileSelected }) 
       >
         <input
           type="file"
-          accept="audio/*"
+          accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/mp4"
           className="hidden"
           onChange={(e) => onFileSelected(e.target.files[0])}
         />
-        {hasFile ? `${fileName} — ${formatTime(duration)}` : 'Click to choose the audio file from luvvoice (mp3 or wav)'}
+        {hasFile
+          ? `${fileName} — ${formatTime(duration)}`
+          : 'Click to choose the audio file from luvvoice (mp3 or wav)'}
       </label>
     </StepCard>
   );
