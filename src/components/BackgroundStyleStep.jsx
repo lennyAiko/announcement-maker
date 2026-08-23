@@ -7,9 +7,12 @@ import {
 } from '../lib/constants';
 import StepCard from './StepCard';
 
-const fieldLabelClass = 'text-[11px] font-semibold uppercase tracking-wide text-ink-soft';
-const selectClass = 'rounded-md border border-line px-2 py-1.5 text-sm focus:border-gold focus:outline focus:outline-2 focus:outline-gold-tint';
-const colorInputClass = 'h-[30px] w-11 cursor-pointer rounded-md border border-line p-0.5';
+const fieldLabelClass =
+  'text-[11px] font-semibold uppercase tracking-wide text-ink-soft';
+const selectClass =
+  'rounded-md border border-line px-2 py-1.5 text-sm focus:border-gold focus:outline focus:outline-2 focus:outline-gold-tint';
+const colorInputClass =
+  'h-[30px] w-11 cursor-pointer rounded-md border border-line p-0.5';
 
 export default function BackgroundStyleStep({
   bgType,
@@ -32,11 +35,15 @@ export default function BackgroundStyleStep({
   onVideoFile,
 }) {
   return (
-    <StepCard number={4} title="Style the background">
+    <StepCard number={5} title="Style the background">
       <div className="flex flex-wrap gap-4">
         <div className="flex flex-col gap-1">
           <label className={fieldLabelClass}>Background type</label>
-          <select value={bgType} onChange={(e) => setBgType(e.target.value)} className={selectClass}>
+          <select
+            value={bgType}
+            onChange={(e) => setBgType(e.target.value)}
+            className={selectClass}
+          >
             <option value="color">Solid color</option>
             <option value="image">Image</option>
             <option value="video">Video loop</option>
@@ -146,7 +153,9 @@ export default function BackgroundStyleStep({
         )}
         {bgType === 'video' && (
           <div className="flex min-w-[200px] flex-1 flex-col gap-1">
-            <label className={fieldLabelClass}>Background video (loops to fill the audio)</label>
+            <label className={fieldLabelClass}>
+              Background video (loops to fill the audio)
+            </label>
             <input
               type="file"
               accept="video/*"

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EXPORT_FPS, EXPORT_MIME_CANDIDATES } from '../lib/constants';
+import { drawCover } from '../lib/canvasDraw';
 
 function pickMimeType() {
   for (const candidate of EXPORT_MIME_CANDIDATES) {
@@ -8,7 +9,17 @@ function pickMimeType() {
   return EXPORT_MIME_CANDIDATES[EXPORT_MIME_CANDIDATES.length - 1];
 }
 
-export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, resolution, onStatus }) {
+export function useExportRecorder({
+  audioRef,
+  introVideoRef,
+  hasIntro,
+  videoElRef,
+  bgType,
+  canvasRef,
+  resolution,
+  redrawAnnouncement,
+  onStatus,
+}) {
   const [isExporting, setIsExporting] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -16,6 +27,7 @@ export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, res
   const chunksRef = useRef([]);
   const audioCtxRef = useRef(null);
   const sourceNodeRef = useRef(null);
+  const introSourceNodeRef = useRef(null);
   const downloadUrlRef = useRef(null);
   const endedHandlerRef = useRef(null);
   const timeUpdateHandlerRef = useRef(null);
@@ -31,6 +43,19 @@ export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, res
     }
     return { audioCtx: audioCtxRef.current, source: sourceNodeRef.current };
   }, [audioRef]);
+
+  const getIntroSource = useCallback(
+    (audioCtx) => {
+      if (!hasIntro || !introVideoRef.current) return null;
+      if (!introSourceNodeRef.current) {
+        introSourceNodeRef.current = audioCtx.createMediaElementSource(
+          introVideoRef.current,
+        );
+      }
+      return introSourceNodeRef.current;
+    },
+    [hasIntro, introVideoRef],
+  );
 
   const startExport = useCallback(async () => {
     const audio = audioRef.current;
@@ -50,8 +75,11 @@ export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, res
       const fps = EXPORT_FPS[resolution] || 30;
       const canvasStream = canvas.captureStream(fps);
       const { audioCtx, source } = getAudioGraph();
+      await audioCtx.resume();
       const dest = audioCtx.createMediaStreamDestination();
       source.connect(dest);
+      const introSource = getIntroSource(audioCtx);
+      if (introSource) introSource.connect(dest);
 
       const combined = new MediaStream([
         ...canvasStream.getVideoTracks(),
@@ -66,6 +94,7 @@ export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, res
       };
       recorder.onstop = () => {
         source.disconnect(dest);
+        if (introSource) introSource.disconnect(dest);
         if (timeUpdateHandlerRef.current) {
           audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
           timeUpdateHandlerRef.current = null;
@@ -78,38 +107,122 @@ export function useExportRecorder({ audioRef, videoElRef, bgType, canvasRef, res
         setIsExporting(false);
         onStatus(
           'ok',
-          "Done. Download the file below — it plays in any browser or video player, and CapCut/other editors can import it if you need further edits.",
+          'Done. Download the file below — it plays in any browser or video player, and CapCut/other editors can import it if you need further edits.',
         );
       };
 
+      const intro = hasIntro ? introVideoRef.current : null;
       audio.currentTime = 0;
-      if (bgType === 'video' && videoElRef.current) videoElRef.current.currentTime = 0;
+      if (intro) Reflect.set(intro, 'currentTime', 0);
+      if (bgType === 'video' && videoElRef.current)
+        videoElRef.current.currentTime = 0;
       await new Promise((r) => setTimeout(r, 100));
 
       recorder.start();
 
+      const totalDuration = audio.duration + (intro?.duration || 0);
+      let completedDuration = 0;
+      const updateProgress = (media) => {
+        if (totalDuration > 0) {
+          setProgress(
+            Math.min(
+              1,
+              (completedDuration + media.currentTime) / totalDuration,
+            ),
+          );
+        }
+      };
+
+      const playToEnd = (media, drawFrame) =>
+        new Promise((resolve, reject) => {
+          let animationFrame;
+          const draw = () => {
+            drawFrame?.();
+            animationFrame = requestAnimationFrame(draw);
+          };
+          const cleanup = () => {
+            media.removeEventListener('ended', handleEnded);
+            media.removeEventListener('error', handleError);
+            media.removeEventListener('timeupdate', handleProgress);
+            if (animationFrame) cancelAnimationFrame(animationFrame);
+          };
+          const handleEnded = () => {
+            cleanup();
+            resolve();
+          };
+          const handleError = () => {
+            cleanup();
+            reject(new Error('A media file could not be played during export'));
+          };
+          const handleProgress = () => updateProgress(media);
+          media.addEventListener('ended', handleEnded, { once: true });
+          media.addEventListener('error', handleError, { once: true });
+          media.addEventListener('timeupdate', handleProgress);
+          if (drawFrame) draw();
+          media.play().catch(reject);
+        });
+
       const handleEnded = () => recorder.stop();
       endedHandlerRef.current = handleEnded;
-      audio.addEventListener('ended', handleEnded, { once: true });
+      onStatus(
+        '',
+        intro ? 'Recording intro video...' : 'Recording announcement...',
+      );
 
-      const handleTimeUpdate = () => {
-        const dur = audio.duration;
-        if (dur > 0) setProgress(Math.min(1, audio.currentTime / dur));
-      };
+      if (intro) {
+        const ctx = canvas.getContext('2d');
+        await playToEnd(intro, () => {
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          if (intro.readyState >= 2) {
+            drawCover(
+              ctx,
+              intro,
+              intro.videoWidth,
+              intro.videoHeight,
+              canvas.width,
+              canvas.height,
+            );
+          }
+        });
+        completedDuration = intro.duration;
+      }
+
+      redrawAnnouncement();
+      onStatus(
+        '',
+        'Recording announcement... keep this tab open until it finishes.',
+      );
+      audio.addEventListener('ended', handleEnded, { once: true });
+      const handleTimeUpdate = () => updateProgress(audio);
       timeUpdateHandlerRef.current = handleTimeUpdate;
       audio.addEventListener('timeupdate', handleTimeUpdate);
-
       await audio.play();
-      onStatus('', 'Recording... keep this tab open until it finishes.');
     } catch (err) {
       setIsExporting(false);
       if (audio && timeUpdateHandlerRef.current) {
         audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
         timeUpdateHandlerRef.current = null;
       }
-      onStatus('warn', `Export failed: ${err.message}. Try Chrome or Edge if you're on another browser.`);
+      onStatus(
+        'warn',
+        `Export failed: ${err.message}. Try Chrome or Edge if you're on another browser.`,
+      );
     }
-  }, [audioRef, videoElRef, bgType, canvasRef, resolution, isExporting, getAudioGraph, onStatus]);
+  }, [
+    audioRef,
+    introVideoRef,
+    hasIntro,
+    videoElRef,
+    bgType,
+    canvasRef,
+    resolution,
+    isExporting,
+    getAudioGraph,
+    getIntroSource,
+    redrawAnnouncement,
+    onStatus,
+  ]);
 
   useEffect(() => {
     const audio = audioRef.current;

@@ -27,7 +27,7 @@ export default function CaptionsStep({
   const isTapping = tapState && tapState.active;
 
   return (
-    <StepCard number={3} title="Generate & fine-tune captions">
+    <StepCard number={4} title="Generate & fine-tune captions">
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -58,7 +58,8 @@ export default function CaptionsStep({
       {isTapping && (
         <div className="mt-3.5 flex flex-col items-center gap-3 rounded-lg border-2 border-gold bg-gold-tint p-5">
           <div className="text-sm font-semibold text-gold-dark">
-            Tap at each caption boundary — {tapState.currentIndex + 1} of {tapState.chunks.length}
+            Tap at each caption boundary — {tapState.currentIndex + 1} of{' '}
+            {tapState.chunks.length}
           </div>
           <div className="max-w-md text-center text-[13px] leading-relaxed text-ink">
             "{tapState.chunks[tapState.currentIndex]}"

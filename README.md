@@ -7,6 +7,7 @@ A browser-based tool that turns a script + narration audio into a captioned vide
 - **Automatic caption generation** — splits text by sentence boundaries (or blank lines) and times captions using syllable-based distribution
 - **Tap-to-time** — play the audio and tap at each caption boundary for perfectly accurate timing
 - **Audio waveform** — visual waveform with caption boundary markers to help align timing
+- **Intro video** — prepend an optional video clip, including its original audio, to the export
 - **Editable durations** — fine-tune any caption's display time, reorder or delete lines
 - **Customizable styling** — background color, image, or looping video; text color, size, position, and font family
 - **Speaking pace control** — adjust from 0.7× (fast) to 1.5× (slow) to match your narrator
@@ -28,19 +29,20 @@ The app opens at [http://localhost:3000](http://localhost:3000).
 
 1. **Paste the announcement** — paste the cleaned-up script text. Insert blank lines to force caption breaks.
 2. **Add the audio** — upload the narration audio file (MP3 or WAV, exported from luvvoice).
-3. **Generate captions** — click "Generate captions" for automatic timing, or "Tap along" to mark timestamps live while listening. Fine-tune durations, reorder, or delete lines as needed.
-4. **Style the background** — choose solid color, image, or video loop. Adjust text appearance, resolution, and speaking pace.
-5. **Preview & export** — preview the video in the canvas, then click "Export video" to record and download.
+3. **Add an intro (optional)** — upload a video clip to place before the announcement. Its video and audio are included in the final file.
+4. **Generate captions** — click "Generate captions" for automatic timing, or "Tap along" to mark timestamps live while listening. Fine-tune durations, reorder, or delete lines as needed.
+5. **Style the background** — choose solid color, image, or video loop. Adjust text appearance, resolution, and speaking pace.
+6. **Preview & export** — preview the announcement in the canvas, then click "Export video" to record the intro and announcement into one download.
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start the dev server |
-| `npm run build` | Build for production |
+| Command           | Description                  |
+| ----------------- | ---------------------------- |
+| `npm run dev`     | Start the dev server         |
+| `npm run build`   | Build for production         |
 | `npm run preview` | Preview the production build |
-| `npm run lint` | Run ESLint |
-| `npm run format` | Format with Prettier |
+| `npm run lint`    | Run ESLint                   |
+| `npm run format`  | Format with Prettier         |
 
 ## Tech stack
 

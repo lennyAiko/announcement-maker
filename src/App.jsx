@@ -4,12 +4,14 @@ import AudioUploadStep from './components/AudioUploadStep';
 import BackgroundStyleStep from './components/BackgroundStyleStep';
 import CaptionsStep from './components/CaptionsStep';
 import ExportProgressModal from './components/ExportProgressModal';
+import IntroVideoStep from './components/IntroVideoStep';
 import PreviewExportStep from './components/PreviewExportStep';
 import ScriptStep from './components/ScriptStep';
 import { useBackgroundStyle } from './hooks/useBackgroundStyle';
 import { useCanvasPreview } from './hooks/useCanvasPreview';
 import { useCaptions } from './hooks/useCaptions';
 import { useExportRecorder } from './hooks/useExportRecorder';
+import { useIntroVideo } from './hooks/useIntroVideo';
 import { useNarrationAudio } from './hooks/useNarrationAudio';
 import {
   currentCaptionAt,
@@ -54,6 +56,15 @@ const App = () => {
     beginScrub,
     endScrub,
   } = useNarrationAudio();
+
+  const {
+    introVideoRef,
+    fileName: introFileName,
+    duration: introDuration,
+    isReady: isIntroReady,
+    loadFile: loadIntroFile,
+    removeFile: removeIntroFile,
+  } = useIntroVideo();
 
   const {
     videoElRef,
@@ -124,17 +135,26 @@ const App = () => {
     setExportStatus({ tone, message });
   }, []);
 
-  const { isExporting, downloadUrl, progress: exportProgress, startExport } = useExportRecorder({
+  const {
+    isExporting,
+    downloadUrl,
+    progress: exportProgress,
+    startExport,
+  } = useExportRecorder({
     audioRef,
+    introVideoRef,
+    hasIntro: isIntroReady,
     videoElRef,
     bgType,
     canvasRef,
     resolution,
+    redrawAnnouncement: redrawNow,
     onStatus: handleExportStatus,
   });
 
   const handleClearSession = () => {
     clearState();
+    removeIntroFile();
     setScriptText('');
     setGenStatus({ tone: 'ok', message: 'Session cleared.' });
   };
@@ -350,6 +370,12 @@ const App = () => {
             duration={audioDuration}
             onFileSelected={loadFile}
           />
+          <IntroVideoStep
+            fileName={introFileName}
+            duration={introDuration}
+            onFileSelected={loadIntroFile}
+            onRemove={removeIntroFile}
+          />
           <CaptionsStep
             captions={captions}
             status={genStatus}
@@ -412,6 +438,7 @@ const App = () => {
       </div>
 
       <audio ref={audioRef} preload="metadata" crossOrigin="anonymous" hidden />
+      <video ref={introVideoRef} preload="metadata" playsInline hidden />
       <video ref={videoElRef} muted playsInline loop hidden />
 
       <ExportProgressModal

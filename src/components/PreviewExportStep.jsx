@@ -27,7 +27,7 @@ export default function PreviewExportStep({
 
   return (
     <div className="sticky top-5">
-      <StepCard number={5} title="Preview & export">
+      <StepCard number={6} title="Preview & export">
         <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black shadow-lg">
           <canvas
             ref={canvasRef}
@@ -57,7 +57,9 @@ export default function PreviewExportStep({
             onChange={onScrubCommit}
             className="flex-1 accent-gold-dark"
           />
-          <div className="min-w-[70px] text-right text-xs tabular-nums text-ink-soft">{timeLabel}</div>
+          <div className="min-w-[70px] text-right text-xs tabular-nums text-ink-soft">
+            {timeLabel}
+          </div>
         </div>
 
         <div className="my-[18px] h-px bg-line" />
