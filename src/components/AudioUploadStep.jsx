@@ -18,7 +18,7 @@ export default function AudioUploadStep({
       >
         <input
           type="file"
-          accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/mp4"
+          accept="audio/*"
           className="hidden"
           onChange={(e) => onFileSelected(e.target.files[0])}
         />
