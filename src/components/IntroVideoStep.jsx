@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { formatTime } from '../lib/captions';
 import StepCard from './StepCard';
 
@@ -7,6 +8,33 @@ export default function IntroVideoStep({
   onFileSelected,
   onRemove,
 }) {
+  const [isDragging, setIsDragging] = useState(false);
+  const dragDepth = useRef(0);
+
+  const isVideoFile = (file) =>
+    file?.type.startsWith('video/') ||
+    /\.(mp4|webm|mov|m4v|avi)$/i.test(file?.name);
+
+  const handleDragEnter = (event) => {
+    event.preventDefault();
+    dragDepth.current += 1;
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (event) => {
+    event.preventDefault();
+    dragDepth.current -= 1;
+    if (dragDepth.current === 0) setIsDragging(false);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    dragDepth.current = 0;
+    setIsDragging(false);
+    const file = event.dataTransfer.files[0];
+    if (isVideoFile(file)) onFileSelected(file);
+  };
+
   return (
     <StepCard number={3} title="Add an intro video (optional)">
       <p className="mb-3 text-[13px] leading-relaxed text-ink-soft">
@@ -14,14 +42,28 @@ export default function IntroVideoStep({
         exported video.
       </p>
       <div className="flex flex-wrap items-center gap-3">
-        <label className="cursor-pointer rounded-lg border border-dashed border-gold px-[18px] py-2.5 text-sm font-semibold text-gold-dark hover:bg-gold-tint">
+        <label
+          onDragEnter={handleDragEnter}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`cursor-pointer rounded-lg border border-dashed px-[18px] py-2.5 text-sm font-semibold transition-colors ${
+            isDragging
+              ? 'border-gold bg-gold-tint text-gold-dark'
+              : 'border-gold text-gold-dark hover:bg-gold-tint'
+          }`}
+        >
           <input
             type="file"
             accept="video/*"
             className="hidden"
             onChange={(event) => onFileSelected(event.target.files[0])}
           />
-          {fileName ? 'Replace intro video' : 'Choose intro video'}
+          {isDragging
+            ? 'Drop intro video here'
+            : fileName
+              ? 'Replace intro video'
+              : 'Choose or drop intro video'}
         </label>
         {fileName ? (
           <>
