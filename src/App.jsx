@@ -138,6 +138,7 @@ const App = () => {
   const {
     isExporting,
     downloadUrl,
+    downloadExtension,
     progress: exportProgress,
     startExport,
   } = useExportRecorder({
@@ -432,6 +433,7 @@ const App = () => {
           isExporting={isExporting}
           onExport={startExport}
           downloadUrl={downloadUrl}
+          downloadExtension={downloadExtension}
           exportStatus={exportStatus}
           resolution={resolution}
         />

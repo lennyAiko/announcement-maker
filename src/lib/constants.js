@@ -6,7 +6,12 @@ export const CANVAS_HEIGHT_1080 = 1080;
 
 export const RESOLUTION_OPTIONS = [
   { value: '720p', label: '720p', width: CANVAS_WIDTH, height: CANVAS_HEIGHT },
-  { value: '1080p', label: '1080p', width: CANVAS_WIDTH_1080, height: CANVAS_HEIGHT_1080 },
+  {
+    value: '1080p',
+    label: '1080p',
+    width: CANVAS_WIDTH_1080,
+    height: CANVAS_HEIGHT_1080,
+  },
 ];
 
 export const FONT_FAMILY_OPTIONS = [
@@ -52,6 +57,11 @@ export const MIN_CAPTION_DURATION = 1.5;
 export const DEFAULT_CAPTION_GAP = 0.25;
 export const FADE_DURATION = 0.2;
 
-export const EXPORT_MIME_CANDIDATES = ['video/webm;codecs=vp9,opus', 'video/webm'];
+export const EXPORT_MIME_CANDIDATES = [
+  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+  'video/mp4',
+  'video/webm;codecs=vp9,opus',
+  'video/webm',
+];
 
 export const EXPORT_FPS = { '720p': 30, '1080p': 30 };

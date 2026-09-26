@@ -12,7 +12,14 @@ export default function AudioUploadStep({
   const dragDepth = useRef(0);
 
   const isAudioFile = (file) =>
-    file?.type.startsWith('audio/') || /\.(mp3|wav|m4a)$/i.test(file?.name);
+    file?.type.startsWith('audio/') ||
+    /\.(mp3|wav|m4a|aac|caf|aiff|aif)$/i.test(file?.name);
+
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
+    if (isAudioFile(file)) onFileSelected(file);
+    event.target.value = '';
+  };
 
   const handleDragEnter = (event) => {
     event.preventDefault();
@@ -51,9 +58,9 @@ export default function AudioUploadStep({
       >
         <input
           type="file"
-          accept="audio/*"
-          className="hidden"
-          onChange={(e) => onFileSelected(e.target.files[0])}
+          accept="audio/*,.mp3,.wav,.m4a,.aac,.caf,.aiff,.aif"
+          className="sr-only"
+          onChange={handleFileChange}
         />
         {hasFile
           ? `${fileName} — ${formatTime(duration)}`

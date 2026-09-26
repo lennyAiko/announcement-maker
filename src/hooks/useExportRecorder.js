@@ -2,11 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { EXPORT_FPS, EXPORT_MIME_CANDIDATES } from '../lib/constants';
 import { drawCover } from '../lib/canvasDraw';
 
-function pickMimeType() {
+function pickMimeType(RecorderCtor) {
   for (const candidate of EXPORT_MIME_CANDIDATES) {
-    if (MediaRecorder.isTypeSupported(candidate)) return candidate;
+    try {
+      if (RecorderCtor.isTypeSupported(candidate)) return candidate;
+    } catch {
+      // Some browser implementations throw for codec strings they do not know.
+    }
   }
-  return EXPORT_MIME_CANDIDATES[EXPORT_MIME_CANDIDATES.length - 1];
+  return '';
+}
+
+function getVideoExtension(mimeType) {
+  return mimeType.toLowerCase().includes('mp4') ? 'mp4' : 'webm';
 }
 
 export function useExportRecorder({
@@ -22,6 +30,7 @@ export function useExportRecorder({
 }) {
   const [isExporting, setIsExporting] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
+  const [downloadExtension, setDownloadExtension] = useState('webm');
   const [progress, setProgress] = useState(0);
 
   const chunksRef = useRef([]);
@@ -72,6 +81,18 @@ export function useExportRecorder({
     onStatus('', 'Preparing export...');
 
     try {
+      const RecorderCtor = window.MediaRecorder;
+      if (!RecorderCtor) {
+        throw new Error(
+          'Video recording is not supported by this browser. Try the latest Safari or Chrome.',
+        );
+      }
+      if (typeof canvas.captureStream !== 'function') {
+        throw new Error(
+          'Canvas video export is not supported by this browser. Try the latest Safari or Chrome.',
+        );
+      }
+
       const fps = EXPORT_FPS[resolution] || 30;
       const canvasStream = canvas.captureStream(fps);
       const { audioCtx, source } = getAudioGraph();
@@ -86,8 +107,12 @@ export function useExportRecorder({
         ...dest.stream.getAudioTracks(),
       ]);
 
-      const mimeType = pickMimeType();
-      const recorder = new MediaRecorder(combined, { mimeType });
+      const requestedMimeType = pickMimeType(RecorderCtor);
+      // If the browser reports no supported type, let it select its native default.
+      const recorder = requestedMimeType
+        ? new RecorderCtor(combined, { mimeType: requestedMimeType })
+        : new RecorderCtor(combined);
+      const mimeType = recorder.mimeType || requestedMimeType || 'video/webm';
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -103,6 +128,7 @@ export function useExportRecorder({
         const url = URL.createObjectURL(blob);
         downloadUrlRef.current = url;
         setDownloadUrl(url);
+        setDownloadExtension(getVideoExtension(mimeType));
         setProgress(1);
         setIsExporting(false);
         onStatus(
@@ -248,5 +274,5 @@ export function useExportRecorder({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isExporting]);
 
-  return { isExporting, downloadUrl, progress, startExport };
+  return { isExporting, downloadUrl, downloadExtension, progress, startExport };
 }

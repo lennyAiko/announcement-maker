@@ -20,6 +20,7 @@ export default function PreviewExportStep({
   isExporting,
   onExport,
   downloadUrl,
+  downloadExtension,
   exportStatus,
   resolution,
 }) {
@@ -76,7 +77,7 @@ export default function PreviewExportStep({
         {downloadUrl && (
           <a
             href={downloadUrl}
-            download="announcement-video.webm"
+            download={`announcement-video.${downloadExtension}`}
             className="mt-3 inline-block rounded-lg bg-gold-dark px-[18px] py-2.5 text-sm font-semibold text-white hover:bg-gold"
           >
             Download video
