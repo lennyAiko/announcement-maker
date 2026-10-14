@@ -42,7 +42,7 @@ export default function IntroVideoStep({
   };
 
   return (
-    <StepCard number={3} title="Add an intro video (optional)">
+    <StepCard number={3} title="Add an intro video (optional choice)">
       <p className="mb-3 text-[13px] leading-relaxed text-ink-soft">
         This clip, including its audio, will play before the announcement in the
         exported video.
