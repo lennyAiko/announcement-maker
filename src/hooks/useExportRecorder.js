@@ -5,23 +5,49 @@ import { drawCover } from '../lib/canvasDraw';
 function getSupportedFormats(RecorderCtor) {
   if (!RecorderCtor) return [];
 
-  const supportedFormats = [];
-  if (typeof RecorderCtor.isTypeSupported === 'function') {
-    for (const format of EXPORT_FORMAT_CANDIDATES) {
-      const mimeType = format.mimeTypes.find((candidate) => {
-        try {
-          return RecorderCtor.isTypeSupported(candidate);
-        } catch {
-          return false;
-        }
-      });
-      if (mimeType) supportedFormats.push({ ...format, mimeType });
-    }
+  if (typeof RecorderCtor.isTypeSupported !== 'function') {
+    return [
+      ...EXPORT_FORMAT_CANDIDATES.map((format) => ({
+        ...format,
+        mimeType: '',
+        supported: false,
+      })),
+      {
+        id: 'default',
+        label: 'Browser default',
+        extension: '',
+        mimeType: '',
+        supported: true,
+      },
+    ];
   }
 
-  return supportedFormats.length > 0
-    ? supportedFormats
-    : [{ id: 'default', label: 'Browser default', extension: '', mimeType: '' }];
+  const formats = EXPORT_FORMAT_CANDIDATES.map((format) => {
+    const mimeType = format.mimeTypes.find((candidate) => {
+      try {
+        return RecorderCtor.isTypeSupported(candidate);
+      } catch {
+        return false;
+      }
+    });
+    return {
+      ...format,
+      mimeType: mimeType ?? '',
+      supported: Boolean(mimeType),
+    };
+  });
+  return formats.some((format) => format.supported)
+    ? formats
+    : [
+        ...formats,
+        {
+          id: 'default',
+          label: 'Browser default',
+          extension: '',
+          mimeType: '',
+          supported: true,
+        },
+      ];
 }
 
 function getVideoExtension(mimeType, fallbackExtension) {
@@ -53,9 +79,12 @@ export function useExportRecorder({
     [],
   );
   const [selectedExportFormat, setSelectedExportFormat] = useState(() =>
-    supportedFormats.some((format) => format.id === initialExportFormat)
+    supportedFormats.some(
+      (format) =>
+        format.id === initialExportFormat && format.supported,
+    )
       ? initialExportFormat
-      : (supportedFormats[0]?.id ?? ''),
+      : (supportedFormats.find((format) => format.supported)?.id ?? ''),
   );
 
   const chunksRef = useRef([]);
@@ -126,8 +155,10 @@ export function useExportRecorder({
       const selectedFormat = supportedFormats.find(
         (format) => format.id === selectedExportFormat,
       );
-      if (!selectedFormat) {
-        throw new Error('Select a video format supported by this browser.');
+      if (!selectedFormat?.supported) {
+        throw new Error(
+          `${selectedFormat?.label ?? 'That format'} is not supported by this browser.`,
+        );
       }
 
       const fps = EXPORT_FPS[resolution] || 30;

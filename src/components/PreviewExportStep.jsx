@@ -74,17 +74,23 @@ export default function PreviewExportStep({
             <select
               value={selectedExportFormat}
               onChange={(event) => onExportFormatChange(event.target.value)}
-              disabled={isExporting || exportFormats.length < 2}
+              disabled={isExporting}
               className="rounded-md border border-line bg-card px-2.5 py-2 text-sm font-normal text-ink focus:border-gold focus:outline focus:outline-2 focus:outline-gold-tint disabled:opacity-60"
             >
               {exportFormats.map((format) => (
-                <option key={format.id} value={format.id}>
+                <option
+                  key={format.id}
+                  value={format.id}
+                  disabled={!format.supported}
+                >
                   {format.label}
+                  {!format.supported ? ' (not supported in this browser)' : ''}
                 </option>
               ))}
             </select>
             <span className="font-normal">
-              Formats listed here are supported by this browser.
+              Choose the video format to export. Unavailable formats are shown
+              but disabled.
             </span>
           </label>
         ) : (
