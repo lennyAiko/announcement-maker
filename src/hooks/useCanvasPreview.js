@@ -17,6 +17,7 @@ export function useCanvasPreview({
   captions,
   isPlaying,
   gap = DEFAULT_CAPTION_GAP,
+  suspendRef,
 }) {
   const canvasRef = useRef(null);
   const rafIdRef = useRef(null);
@@ -60,20 +61,22 @@ export function useCanvasPreview({
       captions,
       gap,
     };
-    redrawNow();
-  }, [redrawNow, bgType, bgColor, textColor, fontSize, fontFamily, textPosition, isImageReady, isVideoReady, captions, gap]);
+    if (!suspendRef?.current) redrawNow();
+  }, [redrawNow, bgType, bgColor, textColor, fontSize, fontFamily, textPosition, isImageReady, isVideoReady, captions, gap, suspendRef]);
 
   useEffect(() => {
     if (!isPlaying) return undefined;
     const loop = () => {
-      redrawNow();
+      // While an export is running, the recorder owns the canvas so it can
+      // draw the intro and the announcement in the right order.
+      if (!suspendRef?.current) redrawNow();
       rafIdRef.current = requestAnimationFrame(loop);
     };
     rafIdRef.current = requestAnimationFrame(loop);
     return () => {
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
     };
-  }, [isPlaying, redrawNow]);
+  }, [isPlaying, redrawNow, suspendRef]);
 
   return { canvasRef, redrawNow };
 }

@@ -68,6 +68,7 @@ export function useExportRecorder({
   resolution,
   redrawAnnouncement,
   onStatus,
+  suspendPreviewRef,
   initialExportFormat = 'mp4',
 }) {
   const [isExporting, setIsExporting] = useState(false);
@@ -132,6 +133,9 @@ export function useExportRecorder({
       downloadUrlRef.current = null;
     }
     setDownloadUrl(null);
+    // While exporting, the recorder drives the canvas itself so the intro and
+    // the announcement are drawn in order instead of fighting the live preview.
+    if (suspendPreviewRef) suspendPreviewRef.current = true;
     onStatus('', 'Preparing export...');
 
     let recorder;
@@ -139,6 +143,9 @@ export function useExportRecorder({
     let originalAudioVolume = audio.volume;
     let originalAudioLoop = audio.loop;
     let intro;
+    let canvasStream;
+    let canvasTrack;
+    let canRequestCanvasFrame = false;
     try {
       const RecorderCtor = window.MediaRecorder;
       if (!RecorderCtor) {
@@ -162,7 +169,14 @@ export function useExportRecorder({
       }
 
       const fps = EXPORT_FPS[resolution] || 30;
-      const canvasStream = canvas.captureStream(fps);
+      canvasStream = canvas.captureStream(0);
+      canvasTrack = canvasStream.getVideoTracks()[0];
+      canRequestCanvasFrame = typeof canvasTrack?.requestFrame === 'function';
+      if (!canRequestCanvasFrame) {
+        canvasStream.getTracks().forEach((track) => track.stop());
+        canvasStream = canvas.captureStream(fps);
+        canvasTrack = canvasStream.getVideoTracks()[0];
+      }
       const { audioCtx, source } = getAudioGraph();
       const audioContextReady = audioCtx.resume();
       const dest = audioCtx.createMediaStreamDestination();
@@ -187,8 +201,10 @@ export function useExportRecorder({
       recorder.onstop = () => {
         source.disconnect(dest);
         if (introSource) introSource.disconnect(dest);
+        canvasStream.getTracks().forEach((track) => track.stop());
         audio.volume = originalAudioVolume;
         audio.loop = originalAudioLoop;
+        if (suspendPreviewRef) suspendPreviewRef.current = false;
         if (failed) return;
         if (timeUpdateHandlerRef.current) {
           audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
@@ -239,8 +255,13 @@ export function useExportRecorder({
       const playToEnd = (media, drawFrame, startPlayback = true) =>
         new Promise((resolve, reject) => {
           let animationFrame;
-          const draw = () => {
-            drawFrame?.();
+          let lastFrameTime = -Infinity;
+          const draw = (timestamp) => {
+            if (timestamp - lastFrameTime >= 1000 / fps) {
+              drawFrame?.();
+              if (canRequestCanvasFrame) canvasTrack.requestFrame();
+              lastFrameTime = timestamp;
+            }
             animationFrame = requestAnimationFrame(draw);
           };
           const cleanup = () => {
@@ -294,6 +315,9 @@ export function useExportRecorder({
             );
           }
         });
+        // Play the narration muted (and looping) while the intro runs so the
+        // browser's autoplay window stays open, then restart it from 0 for the
+        // announcement once the intro finishes.
         const audioStarted = audio.play();
         await audioContextReady;
         await Promise.all([introPlayback, audioStarted]);
@@ -301,6 +325,8 @@ export function useExportRecorder({
         audio.loop = false;
         audio.currentTime = 0;
         audio.volume = originalAudioVolume;
+        if (bgType === 'video' && videoElRef.current)
+          videoElRef.current.currentTime = 0;
         redrawAnnouncement();
         onStatus(
           '',
@@ -310,8 +336,9 @@ export function useExportRecorder({
         const handleTimeUpdate = () => updateProgress(audio);
         timeUpdateHandlerRef.current = handleTimeUpdate;
         audio.addEventListener('timeupdate', handleTimeUpdate);
-        announcementPlayback = playToEnd(audio, undefined, false);
+        announcementPlayback = playToEnd(audio, redrawAnnouncement, false);
       } else {
+        await audioContextReady;
         redrawAnnouncement();
         onStatus(
           '',
@@ -321,13 +348,15 @@ export function useExportRecorder({
         const handleTimeUpdate = () => updateProgress(audio);
         timeUpdateHandlerRef.current = handleTimeUpdate;
         audio.addEventListener('timeupdate', handleTimeUpdate);
-        announcementPlayback = playToEnd(audio);
-        await audioContextReady;
+        announcementPlayback = playToEnd(audio, redrawAnnouncement);
       }
       await announcementPlayback;
+      if (suspendPreviewRef) suspendPreviewRef.current = false;
     } catch (err) {
       failed = true;
+      if (suspendPreviewRef) suspendPreviewRef.current = false;
       if (recorder?.state === 'recording') recorder.stop();
+      canvasStream?.getTracks().forEach((track) => track.stop());
       audio.pause();
       if (intro) intro.pause();
       if (endedHandlerRef.current) {
@@ -363,6 +392,7 @@ export function useExportRecorder({
     getIntroSource,
     redrawAnnouncement,
     onStatus,
+    suspendPreviewRef,
     supportedFormats,
     selectedExportFormat,
   ]);

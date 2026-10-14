@@ -58,6 +58,7 @@ const App = () => {
   const [exportStatus, setExportStatus] = useState(null);
   const [hasRestoredSettings, setHasRestoredSettings] = useState(false);
   const mediaOperationsRef = useRef({});
+  const exportPreviewSuspendRef = useRef(false);
 
   const {
     audioRef,
@@ -156,6 +157,7 @@ const App = () => {
     captions,
     isPlaying,
     gap,
+    suspendRef: exportPreviewSuspendRef,
   });
 
   const handleExportStatus = useCallback((tone, message) => {
@@ -181,6 +183,7 @@ const App = () => {
     resolution,
     redrawAnnouncement: redrawNow,
     onStatus: handleExportStatus,
+    suspendPreviewRef: exportPreviewSuspendRef,
     initialExportFormat: initialSaved?.exportFormat,
   });
 
