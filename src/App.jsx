@@ -168,6 +168,9 @@ const App = () => {
     downloadExtension,
     progress: exportProgress,
     startExport,
+    supportedFormats,
+    selectedExportFormat,
+    setSelectedExportFormat,
   } = useExportRecorder({
     audioRef,
     introVideoRef,
@@ -178,6 +181,7 @@ const App = () => {
     resolution,
     redrawAnnouncement: redrawNow,
     onStatus: handleExportStatus,
+    initialExportFormat: initialSaved?.exportFormat,
   });
 
   const queueMediaOperation = (key, operation) => {
@@ -240,6 +244,7 @@ const App = () => {
     setTextPosition(DEFAULT_TEXT_POSITION);
     setResolution(DEFAULT_RESOLUTION);
     setSpeakingPace(DEFAULT_PACE);
+    setSelectedExportFormat(supportedFormats[0]?.id ?? '');
     setGenStatus({ tone: 'ok', message: 'Session cleared.' });
   };
 
@@ -410,6 +415,7 @@ const App = () => {
       textPosition,
       resolution,
       speakingPace,
+      exportFormat: selectedExportFormat,
       audioFileName: fileName,
       audioDuration,
     });
@@ -424,6 +430,7 @@ const App = () => {
     textPosition,
     resolution,
     speakingPace,
+    selectedExportFormat,
     fileName,
     audioDuration,
     hasRestoredSettings,
@@ -572,6 +579,9 @@ const App = () => {
           downloadExtension={downloadExtension}
           exportStatus={exportStatus}
           resolution={resolution}
+          exportFormats={supportedFormats}
+          selectedExportFormat={selectedExportFormat}
+          onExportFormatChange={setSelectedExportFormat}
         />
       </div>
 

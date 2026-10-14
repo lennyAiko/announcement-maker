@@ -57,11 +57,29 @@ export const MIN_CAPTION_DURATION = 1.5;
 export const DEFAULT_CAPTION_GAP = 0.25;
 export const FADE_DURATION = 0.2;
 
-export const EXPORT_MIME_CANDIDATES = [
-  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-  'video/mp4',
-  'video/webm;codecs=vp9,opus',
-  'video/webm',
+export const EXPORT_FORMAT_CANDIDATES = [
+  {
+    id: 'mp4',
+    label: 'MP4',
+    extension: 'mp4',
+    mimeTypes: ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4'],
+  },
+  {
+    id: 'webm',
+    label: 'WebM',
+    extension: 'webm',
+    mimeTypes: [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+    ],
+  },
+  {
+    id: 'ogg',
+    label: 'Ogg video',
+    extension: 'ogv',
+    mimeTypes: ['video/ogg;codecs=theora,vorbis', 'video/ogg'],
+  },
 ];
 
 export const EXPORT_FPS = { '720p': 30, '1080p': 30 };

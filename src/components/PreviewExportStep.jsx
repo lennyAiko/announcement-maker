@@ -23,6 +23,9 @@ export default function PreviewExportStep({
   downloadExtension,
   exportStatus,
   resolution,
+  exportFormats,
+  selectedExportFormat,
+  onExportFormatChange,
 }) {
   const dims = getResolutionDims(resolution);
 
@@ -65,9 +68,33 @@ export default function PreviewExportStep({
 
         <div className="my-[18px] h-px bg-line" />
 
+        {exportFormats.length > 0 ? (
+          <label className="mb-2 flex flex-col gap-1.5 text-xs font-semibold text-ink-soft">
+            Export format
+            <select
+              value={selectedExportFormat}
+              onChange={(event) => onExportFormatChange(event.target.value)}
+              disabled={isExporting || exportFormats.length < 2}
+              className="rounded-md border border-line bg-card px-2.5 py-2 text-sm font-normal text-ink focus:border-gold focus:outline focus:outline-2 focus:outline-gold-tint disabled:opacity-60"
+            >
+              {exportFormats.map((format) => (
+                <option key={format.id} value={format.id}>
+                  {format.label}
+                </option>
+              ))}
+            </select>
+            <span className="font-normal">
+              Formats listed here are supported by this browser.
+            </span>
+          </label>
+        ) : (
+          <p className="mb-2 text-xs text-danger">
+            Video export is not supported by this browser.
+          </p>
+        )}
         <button
           type="button"
-          disabled={!canExport || isExporting}
+          disabled={!canExport || !exportFormats.length || isExporting}
           onClick={onExport}
           className="w-full rounded-lg bg-gold-dark px-[18px] py-2.5 text-sm font-semibold text-white hover:bg-gold disabled:cursor-not-allowed disabled:opacity-40"
         >

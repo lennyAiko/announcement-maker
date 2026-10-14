@@ -58,6 +58,7 @@ export function saveState(state) {
       textPosition: state.textPosition,
       resolution: state.resolution,
       speakingPace: state.speakingPace,
+      exportFormat: state.exportFormat,
       audioFileName: state.audioFileName,
       audioDuration: state.audioDuration,
       savedAt: Date.now(),

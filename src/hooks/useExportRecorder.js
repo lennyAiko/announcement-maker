@@ -1,20 +1,35 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { EXPORT_FPS, EXPORT_MIME_CANDIDATES } from '../lib/constants';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { EXPORT_FPS, EXPORT_FORMAT_CANDIDATES } from '../lib/constants';
 import { drawCover } from '../lib/canvasDraw';
 
-function pickMimeType(RecorderCtor) {
-  for (const candidate of EXPORT_MIME_CANDIDATES) {
-    try {
-      if (RecorderCtor.isTypeSupported(candidate)) return candidate;
-    } catch {
-      // Some browser implementations throw for codec strings they do not know.
+function getSupportedFormats(RecorderCtor) {
+  if (!RecorderCtor) return [];
+
+  const supportedFormats = [];
+  if (typeof RecorderCtor.isTypeSupported === 'function') {
+    for (const format of EXPORT_FORMAT_CANDIDATES) {
+      const mimeType = format.mimeTypes.find((candidate) => {
+        try {
+          return RecorderCtor.isTypeSupported(candidate);
+        } catch {
+          return false;
+        }
+      });
+      if (mimeType) supportedFormats.push({ ...format, mimeType });
     }
   }
-  return '';
+
+  return supportedFormats.length > 0
+    ? supportedFormats
+    : [{ id: 'default', label: 'Browser default', extension: '', mimeType: '' }];
 }
 
-function getVideoExtension(mimeType) {
-  return mimeType.toLowerCase().includes('mp4') ? 'mp4' : 'webm';
+function getVideoExtension(mimeType, fallbackExtension) {
+  const normalizedMimeType = mimeType.toLowerCase();
+  if (normalizedMimeType.includes('mp4')) return 'mp4';
+  if (normalizedMimeType.includes('ogg')) return 'ogv';
+  if (normalizedMimeType.includes('webm')) return 'webm';
+  return fallbackExtension || 'webm';
 }
 
 export function useExportRecorder({
@@ -27,11 +42,21 @@ export function useExportRecorder({
   resolution,
   redrawAnnouncement,
   onStatus,
+  initialExportFormat = 'mp4',
 }) {
   const [isExporting, setIsExporting] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [downloadExtension, setDownloadExtension] = useState('webm');
   const [progress, setProgress] = useState(0);
+  const supportedFormats = useMemo(
+    () => getSupportedFormats(window.MediaRecorder),
+    [],
+  );
+  const [selectedExportFormat, setSelectedExportFormat] = useState(() =>
+    supportedFormats.some((format) => format.id === initialExportFormat)
+      ? initialExportFormat
+      : (supportedFormats[0]?.id ?? ''),
+  );
 
   const chunksRef = useRef([]);
   const audioCtxRef = useRef(null);
@@ -98,6 +123,13 @@ export function useExportRecorder({
         );
       }
 
+      const selectedFormat = supportedFormats.find(
+        (format) => format.id === selectedExportFormat,
+      );
+      if (!selectedFormat) {
+        throw new Error('Select a video format supported by this browser.');
+      }
+
       const fps = EXPORT_FPS[resolution] || 30;
       const canvasStream = canvas.captureStream(fps);
       const { audioCtx, source } = getAudioGraph();
@@ -112,12 +144,11 @@ export function useExportRecorder({
         ...dest.stream.getAudioTracks(),
       ]);
 
-      const requestedMimeType = pickMimeType(RecorderCtor);
-      // If the browser reports no supported type, let it select its native default.
-      recorder = requestedMimeType
-        ? new RecorderCtor(combined, { mimeType: requestedMimeType })
+      recorder = selectedFormat.mimeType
+        ? new RecorderCtor(combined, { mimeType: selectedFormat.mimeType })
         : new RecorderCtor(combined);
-      const mimeType = recorder.mimeType || requestedMimeType || 'video/webm';
+      const mimeType =
+        recorder.mimeType || selectedFormat.mimeType || 'video/webm';
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -136,7 +167,9 @@ export function useExportRecorder({
         const url = URL.createObjectURL(blob);
         downloadUrlRef.current = url;
         setDownloadUrl(url);
-        setDownloadExtension(getVideoExtension(mimeType));
+        setDownloadExtension(
+          getVideoExtension(mimeType, selectedFormat.extension),
+        );
         setProgress(1);
         setIsExporting(false);
         onStatus(
@@ -299,6 +332,8 @@ export function useExportRecorder({
     getIntroSource,
     redrawAnnouncement,
     onStatus,
+    supportedFormats,
+    selectedExportFormat,
   ]);
 
   useEffect(() => {
@@ -325,5 +360,14 @@ export function useExportRecorder({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isExporting]);
 
-  return { isExporting, downloadUrl, downloadExtension, progress, startExport };
+  return {
+    isExporting,
+    downloadUrl,
+    downloadExtension,
+    progress,
+    startExport,
+    supportedFormats,
+    selectedExportFormat,
+    setSelectedExportFormat,
+  };
 }
