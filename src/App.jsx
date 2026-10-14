@@ -19,8 +19,24 @@ import {
   getDurationMismatch,
   splitIntoChunks,
 } from './lib/captions';
-import { DEFAULT_CAPTION_GAP } from './lib/constants';
-import { clearState, loadState, saveState } from './lib/persistence';
+import {
+  DEFAULT_BG_COLOR,
+  DEFAULT_CAPTION_GAP,
+  DEFAULT_FONT_FAMILY,
+  DEFAULT_FONT_SIZE,
+  DEFAULT_PACE,
+  DEFAULT_RESOLUTION,
+  DEFAULT_TEXT_COLOR,
+  DEFAULT_TEXT_POSITION,
+} from './lib/constants';
+import {
+  clearMedia,
+  clearState,
+  loadMedia,
+  loadState,
+  saveMedia,
+  saveState,
+} from './lib/persistence';
 
 const START_PAD = DEFAULT_CAPTION_GAP;
 const END_PAD = DEFAULT_CAPTION_GAP;
@@ -34,12 +50,14 @@ const App = () => {
     if (initialSaved?.audioFileName) {
       return {
         tone: 'ok',
-        message: `Restored previous session (audio: ${initialSaved.audioFileName}). Re-upload audio if needed.`,
+        message: 'Restored previous session.',
       };
     }
     return null;
   });
   const [exportStatus, setExportStatus] = useState(null);
+  const [hasRestoredSettings, setHasRestoredSettings] = useState(false);
+  const mediaOperationsRef = useRef({});
 
   const {
     audioRef,
@@ -51,6 +69,7 @@ const App = () => {
     timeLabel,
     waveformPeaks,
     loadFile,
+    clearFile: clearAudioFile,
     togglePlay,
     seek,
     beginScrub,
@@ -85,10 +104,14 @@ const App = () => {
     setResolution,
     speakingPace,
     setSpeakingPace,
+    imageFileName,
+    videoFileName,
     isImageReady,
     isVideoReady,
     loadImageFile,
     loadVideoFile,
+    clearImageFile,
+    clearVideoFile,
     seekVideoToAudioTime,
   } = useBackgroundStyle(isPlaying);
 
@@ -97,13 +120,17 @@ const App = () => {
     generate,
     distributeEvenly,
     updateDuration,
+    resetDuration,
+    clearCaptions,
     deleteCaption,
     moveCaption,
     tapState,
     startTapMode,
     recordTap,
     cancelTapMode,
-  } = useCaptions();
+  } = useCaptions(
+    Array.isArray(initialSaved?.captions) ? initialSaved.captions : [],
+  );
 
   const gap = DEFAULT_CAPTION_GAP;
   const prevTapActiveRef = useRef(false);
@@ -153,10 +180,66 @@ const App = () => {
     onStatus: handleExportStatus,
   });
 
+  const queueMediaOperation = (key, operation) => {
+    const previous = mediaOperationsRef.current[key] ?? Promise.resolve();
+    const next = previous.catch(() => {}).then(operation);
+    mediaOperationsRef.current[key] = next;
+    return next;
+  };
+
+  const handleSaveMedia = (key, file, onLoad) => {
+    onLoad(file);
+    queueMediaOperation(key, () => saveMedia(key, file)).catch((error) => {
+      setGenStatus({
+        tone: 'warn',
+        message: `Could not cache ${file.name}: ${error.message}`,
+      });
+    });
+  };
+
+  const handleClearMedia = (key, onClear) => {
+    onClear();
+    queueMediaOperation(key, () => clearMedia(key)).catch((error) => {
+      setGenStatus({
+        tone: 'warn',
+        message: `Could not clear cached media: ${error.message}`,
+      });
+    });
+  };
+
   const handleClearSession = () => {
     clearState();
+    const mediaKeys = [
+      'audio',
+      'intro',
+      'background-image',
+      'background-video',
+    ];
+    Promise.all(
+      mediaKeys.map((key) =>
+        queueMediaOperation(key, () => clearMedia(key)),
+      ),
+    ).catch((error) => {
+      setGenStatus({
+        tone: 'warn',
+        message: `Session was reset, but cached media could not be cleared: ${error.message}`,
+      });
+    });
+    clearAudioFile();
     removeIntroFile();
+    clearImageFile();
+    clearVideoFile();
+    clearCaptions();
+    cancelTapMode();
     setScriptText('');
+    setBgType('color');
+    setBgColor(DEFAULT_BG_COLOR);
+    setTextColor(DEFAULT_TEXT_COLOR);
+    setFontSize(DEFAULT_FONT_SIZE);
+    setFontFamily(DEFAULT_FONT_FAMILY);
+    setTextPosition(DEFAULT_TEXT_POSITION);
+    setResolution(DEFAULT_RESOLUTION);
+    setSpeakingPace(DEFAULT_PACE);
     setGenStatus({ tone: 'ok', message: 'Session cleared.' });
   };
 
@@ -258,17 +341,53 @@ const App = () => {
 
   // --- restore saved style settings ---
   useEffect(() => {
-    if (!initialSaved) return;
-    if (initialSaved.bgType) setBgType(initialSaved.bgType);
-    if (initialSaved.bgColor) setBgColor(initialSaved.bgColor);
-    if (initialSaved.textColor) setTextColor(initialSaved.textColor);
-    if (initialSaved.fontSize) setFontSize(initialSaved.fontSize);
-    if (initialSaved.fontFamily) setFontFamily(initialSaved.fontFamily);
-    if (initialSaved.textPosition) setTextPosition(initialSaved.textPosition);
-    if (initialSaved.resolution) setResolution(initialSaved.resolution);
-    if (initialSaved.speakingPace) setSpeakingPace(initialSaved.speakingPace);
+    if (initialSaved) {
+      if (initialSaved.bgType) setBgType(initialSaved.bgType);
+      if (initialSaved.bgColor) setBgColor(initialSaved.bgColor);
+      if (initialSaved.textColor) setTextColor(initialSaved.textColor);
+      if (initialSaved.fontSize) setFontSize(initialSaved.fontSize);
+      if (initialSaved.fontFamily) setFontFamily(initialSaved.fontFamily);
+      if (initialSaved.textPosition) setTextPosition(initialSaved.textPosition);
+      if (initialSaved.resolution) setResolution(initialSaved.resolution);
+      if (initialSaved.speakingPace) setSpeakingPace(initialSaved.speakingPace);
+    }
+    setHasRestoredSettings(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // --- restore uploaded media from IndexedDB ---
+  useEffect(() => {
+    let isCurrent = true;
+    Promise.all([
+      loadMedia('audio'),
+      loadMedia('intro'),
+      loadMedia('background-image'),
+      loadMedia('background-video'),
+    ])
+      .then(([audio, intro, backgroundImage, backgroundVideo]) => {
+        if (!isCurrent) return;
+        if (audio) loadFile(audio);
+        if (intro) loadIntroFile(intro);
+        if (backgroundImage) loadImageFile(backgroundImage);
+        if (backgroundVideo) loadVideoFile(backgroundVideo);
+        if (!audio && initialSaved?.audioFileName) {
+          setGenStatus({
+            tone: 'warn',
+            message: `Audio "${initialSaved.audioFileName}" could not be restored. Please select it again.`,
+          });
+        }
+      })
+      .catch((error) => {
+        if (!isCurrent) return;
+        setGenStatus({
+          tone: 'warn',
+          message: `Could not restore cached files: ${error.message}`,
+        });
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [loadFile, loadIntroFile, loadImageFile, loadVideoFile]);
 
   // --- sync refs for keyboard handler ---
   useEffect(() => {
@@ -279,6 +398,7 @@ const App = () => {
 
   // --- localStorage save on changes ---
   useEffect(() => {
+    if (!hasRestoredSettings) return;
     saveState({
       scriptText,
       captions,
@@ -306,6 +426,7 @@ const App = () => {
     speakingPace,
     fileName,
     audioDuration,
+    hasRestoredSettings,
   ]);
 
   // --- tap-to-time: pause audio when tap mode auto-finishes ---
@@ -369,13 +490,14 @@ const App = () => {
           <AudioUploadStep
             fileName={fileName}
             duration={audioDuration}
-            onFileSelected={loadFile}
+            onFileSelected={(file) => handleSaveMedia('audio', file, loadFile)}
+            onClear={() => handleClearMedia('audio', clearAudioFile)}
           />
           <IntroVideoStep
             fileName={introFileName}
             duration={introDuration}
-            onFileSelected={loadIntroFile}
-            onRemove={removeIntroFile}
+            onFileSelected={(file) => handleSaveMedia('intro', file, loadIntroFile)}
+            onRemove={() => handleClearMedia('intro', removeIntroFile)}
           />
           <CaptionsStep
             captions={captions}
@@ -384,6 +506,8 @@ const App = () => {
             onGenerate={handleGenerate}
             onDistributeEvenly={handleDistributeEvenly}
             onDurationChange={handleDurationChange}
+            onResetDuration={resetDuration}
+            onClearCaptions={clearCaptions}
             activeCaptionId={activeCaptionId}
             onDelete={handleDeleteCaption}
             onMoveUp={handleMoveUp}
@@ -415,8 +539,20 @@ const App = () => {
             setResolution={setResolution}
             speakingPace={speakingPace}
             setSpeakingPace={setSpeakingPace}
-            onImageFile={loadImageFile}
-            onVideoFile={loadVideoFile}
+            imageFileName={imageFileName}
+            videoFileName={videoFileName}
+            onImageFile={(file) =>
+              handleSaveMedia('background-image', file, loadImageFile)
+            }
+            onVideoFile={(file) =>
+              handleSaveMedia('background-video', file, loadVideoFile)
+            }
+            onClearImage={() =>
+              handleClearMedia('background-image', clearImageFile)
+            }
+            onClearVideo={() =>
+              handleClearMedia('background-video', clearVideoFile)
+            }
           />
         </div>
 

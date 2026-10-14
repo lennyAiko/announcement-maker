@@ -3,6 +3,16 @@ import StepCard from './StepCard';
 export default function ScriptStep({ value, onChange }) {
   return (
     <StepCard number={1} title="Paste the announcement">
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          disabled={!value}
+          className="rounded border border-line px-2 py-1 text-[11px] text-ink-soft hover:border-danger hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Clear script
+        </button>
+      </div>
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}

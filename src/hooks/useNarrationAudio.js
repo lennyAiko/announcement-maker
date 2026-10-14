@@ -33,6 +33,7 @@ export function useNarrationAudio() {
   const scrubInputRef = useRef(null);
   const objectUrlRef = useRef(null);
   const isScrubbingRef = useRef(false);
+  const decodeRequestRef = useRef(0);
 
   const [fileName, setFileName] = useState('');
   const [duration, setDuration] = useState(0);
@@ -99,7 +100,33 @@ export function useNarrationAudio() {
     audio.src = url;
     setFileName(file.name);
     setWaveformPeaks([]);
-    decodeWaveformPeaks(file).then(setWaveformPeaks);
+    const decodeRequest = ++decodeRequestRef.current;
+    decodeWaveformPeaks(file).then((peaks) => {
+      if (decodeRequest === decodeRequestRef.current) setWaveformPeaks(peaks);
+    });
+  }, []);
+
+  const clearFile = useCallback(() => {
+    decodeRequestRef.current += 1;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    setFileName('');
+    setDuration(0);
+    setCurrentTime(0);
+    setTimeLabel('0:00 / 0:00');
+    setWaveformPeaks([]);
+    if (scrubInputRef.current) {
+      scrubInputRef.current.max = '0';
+      scrubInputRef.current.value = '0';
+    }
   }, []);
 
   const togglePlay = useCallback(() => {
@@ -133,6 +160,7 @@ export function useNarrationAudio() {
     timeLabel,
     waveformPeaks,
     loadFile,
+    clearFile,
     togglePlay,
     seek,
     beginScrub,

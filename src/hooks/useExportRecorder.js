@@ -80,6 +80,11 @@ export function useExportRecorder({
     setDownloadUrl(null);
     onStatus('', 'Preparing export...');
 
+    let recorder;
+    let failed = false;
+    let originalAudioVolume = audio.volume;
+    let originalAudioLoop = audio.loop;
+    let intro;
     try {
       const RecorderCtor = window.MediaRecorder;
       if (!RecorderCtor) {
@@ -96,7 +101,7 @@ export function useExportRecorder({
       const fps = EXPORT_FPS[resolution] || 30;
       const canvasStream = canvas.captureStream(fps);
       const { audioCtx, source } = getAudioGraph();
-      await audioCtx.resume();
+      const audioContextReady = audioCtx.resume();
       const dest = audioCtx.createMediaStreamDestination();
       source.connect(dest);
       const introSource = getIntroSource(audioCtx);
@@ -109,7 +114,7 @@ export function useExportRecorder({
 
       const requestedMimeType = pickMimeType(RecorderCtor);
       // If the browser reports no supported type, let it select its native default.
-      const recorder = requestedMimeType
+      recorder = requestedMimeType
         ? new RecorderCtor(combined, { mimeType: requestedMimeType })
         : new RecorderCtor(combined);
       const mimeType = recorder.mimeType || requestedMimeType || 'video/webm';
@@ -120,6 +125,9 @@ export function useExportRecorder({
       recorder.onstop = () => {
         source.disconnect(dest);
         if (introSource) introSource.disconnect(dest);
+        audio.volume = originalAudioVolume;
+        audio.loop = originalAudioLoop;
+        if (failed) return;
         if (timeUpdateHandlerRef.current) {
           audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
           timeUpdateHandlerRef.current = null;
@@ -137,12 +145,17 @@ export function useExportRecorder({
         );
       };
 
-      const intro = hasIntro ? introVideoRef.current : null;
+      intro = hasIntro ? introVideoRef.current : null;
+      originalAudioVolume = audio.volume;
+      originalAudioLoop = audio.loop;
       audio.currentTime = 0;
       if (intro) Reflect.set(intro, 'currentTime', 0);
       if (bgType === 'video' && videoElRef.current)
         videoElRef.current.currentTime = 0;
-      await new Promise((r) => setTimeout(r, 100));
+      if (intro) {
+        audio.volume = 0;
+        audio.loop = true;
+      }
 
       recorder.start();
 
@@ -159,7 +172,7 @@ export function useExportRecorder({
         }
       };
 
-      const playToEnd = (media, drawFrame) =>
+      const playToEnd = (media, drawFrame, startPlayback = true) =>
         new Promise((resolve, reject) => {
           let animationFrame;
           const draw = () => {
@@ -185,7 +198,12 @@ export function useExportRecorder({
           media.addEventListener('error', handleError, { once: true });
           media.addEventListener('timeupdate', handleProgress);
           if (drawFrame) draw();
-          media.play().catch(reject);
+          if (startPlayback) {
+            media.play().catch((error) => {
+              cleanup();
+              reject(error);
+            });
+          }
         });
 
       const handleEnded = () => recorder.stop();
@@ -195,9 +213,10 @@ export function useExportRecorder({
         intro ? 'Recording intro video...' : 'Recording announcement...',
       );
 
+      let announcementPlayback;
       if (intro) {
         const ctx = canvas.getContext('2d');
-        await playToEnd(intro, () => {
+        const introPlayback = playToEnd(intro, () => {
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           if (intro.readyState >= 2) {
@@ -211,20 +230,52 @@ export function useExportRecorder({
             );
           }
         });
+        const audioStarted = audio.play();
+        await audioContextReady;
+        await Promise.all([introPlayback, audioStarted]);
         completedDuration = intro.duration;
+        audio.loop = false;
+        audio.currentTime = 0;
+        audio.volume = originalAudioVolume;
+        redrawAnnouncement();
+        onStatus(
+          '',
+          'Recording announcement... keep this tab open until it finishes.',
+        );
+        audio.addEventListener('ended', handleEnded, { once: true });
+        const handleTimeUpdate = () => updateProgress(audio);
+        timeUpdateHandlerRef.current = handleTimeUpdate;
+        audio.addEventListener('timeupdate', handleTimeUpdate);
+        announcementPlayback = playToEnd(audio, undefined, false);
+      } else {
+        redrawAnnouncement();
+        onStatus(
+          '',
+          'Recording announcement... keep this tab open until it finishes.',
+        );
+        audio.addEventListener('ended', handleEnded, { once: true });
+        const handleTimeUpdate = () => updateProgress(audio);
+        timeUpdateHandlerRef.current = handleTimeUpdate;
+        audio.addEventListener('timeupdate', handleTimeUpdate);
+        announcementPlayback = playToEnd(audio);
+        await audioContextReady;
       }
-
-      redrawAnnouncement();
-      onStatus(
-        '',
-        'Recording announcement... keep this tab open until it finishes.',
-      );
-      audio.addEventListener('ended', handleEnded, { once: true });
-      const handleTimeUpdate = () => updateProgress(audio);
-      timeUpdateHandlerRef.current = handleTimeUpdate;
-      audio.addEventListener('timeupdate', handleTimeUpdate);
-      await audio.play();
+      await announcementPlayback;
     } catch (err) {
+      failed = true;
+      if (recorder?.state === 'recording') recorder.stop();
+      audio.pause();
+      if (intro) intro.pause();
+      if (endedHandlerRef.current) {
+        audio.removeEventListener('ended', endedHandlerRef.current);
+        endedHandlerRef.current = null;
+      }
+      if (timeUpdateHandlerRef.current) {
+        audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
+        timeUpdateHandlerRef.current = null;
+      }
+      audio.volume = originalAudioVolume;
+      audio.loop = originalAudioLoop;
       setIsExporting(false);
       if (audio && timeUpdateHandlerRef.current) {
         audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
@@ -232,7 +283,7 @@ export function useExportRecorder({
       }
       onStatus(
         'warn',
-        `Export failed: ${err.message}. Try Chrome or Edge if you're on another browser.`,
+        `Export failed${err.name ? ` (${err.name})` : ''}: ${err.message}. Keep Safari in the foreground and try again; if this continues, try Chrome or Edge.`,
       );
     }
   }, [

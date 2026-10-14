@@ -2,10 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { DEFAULT_CAPTION_GAP, DEFAULT_PACE } from '../lib/constants';
 import { distributeDurations, formatTime, splitIntoChunks } from '../lib/captions';
 
-export function useCaptions() {
-  const [captions, setCaptions] = useState([]);
+export function useCaptions(initialCaptions = []) {
+  const [captions, setCaptions] = useState(() =>
+    initialCaptions.map((caption) => ({
+      ...caption,
+      defaultDuration: caption.defaultDuration ?? caption.duration,
+    })),
+  );
   const [tapState, setTapState] = useState(null);
-  const nextIdRef = useRef(0);
+  const nextIdRef = useRef(
+    initialCaptions.reduce(
+      (nextId, caption) =>
+        typeof caption.id === 'number'
+          ? Math.max(nextId, caption.id + 1)
+          : nextId,
+      0,
+    ),
+  );
 
   const generate = useCallback((scriptText, audioDuration, { pace = DEFAULT_PACE, gap = DEFAULT_CAPTION_GAP, startPad = 0, endPad = 0 } = {}) => {
     const chunks = splitIntoChunks(scriptText);
@@ -17,7 +30,13 @@ export function useCaptions() {
     }
 
     const distributed = distributeDurations(chunks, audioDuration, { pace, gap, startPad, endPad });
-    setCaptions(distributed.map((c) => ({ id: nextIdRef.current++, ...c })));
+    setCaptions(
+      distributed.map((c) => ({
+        id: nextIdRef.current++,
+        ...c,
+        defaultDuration: c.duration,
+      })),
+    );
 
     return {
       ok: true,
@@ -34,12 +53,30 @@ export function useCaptions() {
       const totalPad = startPad + endPad;
       const available = Math.max(0.1, audioDuration - totalGapTime - totalPad);
       const equalDuration = (available / prev.length) * pace;
-      return prev.map((c) => ({ ...c, duration: equalDuration }));
+      return prev.map((c) => ({
+        ...c,
+        duration: equalDuration,
+        defaultDuration: equalDuration,
+      }));
     });
   }, []);
 
   const updateDuration = useCallback((id, value) => {
     setCaptions((prev) => prev.map((c) => (c.id === id ? { ...c, duration: value } : c)));
+  }, []);
+
+  const resetDuration = useCallback((id) => {
+    setCaptions((prev) =>
+      prev.map((caption) =>
+        caption.id === id
+          ? { ...caption, duration: caption.defaultDuration }
+          : caption,
+      ),
+    );
+  }, []);
+
+  const clearCaptions = useCallback(() => {
+    setCaptions([]);
   }, []);
 
   const deleteCaption = useCallback((id) => {
@@ -93,7 +130,13 @@ export function useCaptions() {
         duration: Math.max(0.1, dur),
       });
     }
-    setCaptions(durations.map((c) => ({ id: nextIdRef.current++, ...c })));
+    setCaptions(
+      durations.map((c) => ({
+        id: nextIdRef.current++,
+        ...c,
+        defaultDuration: c.duration,
+      })),
+    );
     setTapState(null);
   }, [tapState]);
 
@@ -102,6 +145,8 @@ export function useCaptions() {
     generate,
     distributeEvenly,
     updateDuration,
+    resetDuration,
+    clearCaptions,
     deleteCaption,
     moveCaption,
     tapState,

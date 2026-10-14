@@ -6,6 +6,7 @@ export default function AudioUploadStep({
   fileName,
   duration,
   onFileSelected,
+  onClear,
 }) {
   const hasFile = Boolean(fileName);
   const [isDragging, setIsDragging] = useState(false);
@@ -68,6 +69,17 @@ export default function AudioUploadStep({
             ? 'Drop the audio file here'
             : 'Click to choose or drop the audio file from luvvoice (mp3 or wav)'}
       </label>
+      {hasFile && (
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded border border-line px-2 py-1 text-[11px] text-ink-soft hover:border-danger hover:text-danger"
+          >
+            Clear audio
+          </button>
+        </div>
+      )}
     </StepCard>
   );
 }

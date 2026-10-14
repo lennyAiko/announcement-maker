@@ -35,6 +35,12 @@ export default function IntroVideoStep({
     if (isVideoFile(file)) onFileSelected(file);
   };
 
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
+    if (isVideoFile(file)) onFileSelected(file);
+    event.target.value = '';
+  };
+
   return (
     <StepCard number={3} title="Add an intro video (optional)">
       <p className="mb-3 text-[13px] leading-relaxed text-ink-soft">
@@ -57,7 +63,7 @@ export default function IntroVideoStep({
             type="file"
             accept="video/*"
             className="hidden"
-            onChange={(event) => onFileSelected(event.target.files[0])}
+            onChange={handleFileChange}
           />
           {isDragging
             ? 'Drop intro video here'

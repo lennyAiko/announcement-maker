@@ -10,6 +10,8 @@ export default function CaptionsStep({
   onGenerate,
   onDistributeEvenly,
   onDurationChange,
+  onResetDuration,
+  onClearCaptions,
   activeCaptionId,
   onDelete,
   onMoveUp,
@@ -44,6 +46,14 @@ export default function CaptionsStep({
           className="rounded-lg border border-line bg-card px-[18px] py-2.5 text-sm font-semibold text-ink hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
         >
           Distribute evenly
+        </button>
+        <button
+          type="button"
+          disabled={captions.length === 0 || isTapping}
+          onClick={onClearCaptions}
+          className="rounded-lg border border-line bg-card px-[18px] py-2.5 text-sm font-semibold text-ink-soft hover:border-danger hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Clear captions
         </button>
         <button
           type="button"
@@ -106,6 +116,7 @@ export default function CaptionsStep({
             isFirst={i === 0}
             isLast={i === captions.length - 1}
             onDurationChange={onDurationChange}
+            onResetDuration={onResetDuration}
             onDelete={onDelete}
             onMoveUp={onMoveUp}
             onMoveDown={onMoveDown}

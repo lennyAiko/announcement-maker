@@ -23,6 +23,8 @@ export function useBackgroundStyle(isAudioPlaying) {
   const [textPosition, setTextPosition] = useState(DEFAULT_TEXT_POSITION);
   const [resolution, setResolution] = useState(DEFAULT_RESOLUTION);
   const [speakingPace, setSpeakingPace] = useState(DEFAULT_PACE);
+  const [imageFileName, setImageFileName] = useState('');
+  const [videoFileName, setVideoFileName] = useState('');
   const [isImageReady, setIsImageReady] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
 
@@ -34,8 +36,11 @@ export function useBackgroundStyle(isAudioPlaying) {
     }
     const url = URL.createObjectURL(file);
     imageObjectUrlRef.current = url;
+    setImageFileName(file.name);
+    setIsImageReady(false);
     const img = new Image();
     img.onload = () => {
+      if (imageObjectUrlRef.current !== url) return;
       imageRef.current = img;
       setIsImageReady(true);
     };
@@ -52,7 +57,33 @@ export function useBackgroundStyle(isAudioPlaying) {
     setIsVideoReady(false);
     const url = URL.createObjectURL(file);
     videoObjectUrlRef.current = url;
+    setVideoFileName(file.name);
     video.src = url;
+  }, []);
+
+  const clearImageFile = useCallback(() => {
+    if (imageObjectUrlRef.current) {
+      URL.revokeObjectURL(imageObjectUrlRef.current);
+      imageObjectUrlRef.current = null;
+    }
+    imageRef.current = null;
+    setImageFileName('');
+    setIsImageReady(false);
+  }, []);
+
+  const clearVideoFile = useCallback(() => {
+    const video = videoElRef.current;
+    if (video) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    }
+    if (videoObjectUrlRef.current) {
+      URL.revokeObjectURL(videoObjectUrlRef.current);
+      videoObjectUrlRef.current = null;
+    }
+    setVideoFileName('');
+    setIsVideoReady(false);
   }, []);
 
   useEffect(() => {
@@ -112,10 +143,14 @@ export function useBackgroundStyle(isAudioPlaying) {
     setResolution,
     speakingPace,
     setSpeakingPace,
+    imageFileName,
+    videoFileName,
     isImageReady,
     isVideoReady,
     loadImageFile,
     loadVideoFile,
+    clearImageFile,
+    clearVideoFile,
     seekVideoToAudioTime,
     resetVideo,
   };

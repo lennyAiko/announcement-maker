@@ -1,6 +1,16 @@
 import { useEffect, useRef } from 'react';
 
-export default function CaptionRow({ caption, isActive, isFirst, isLast, onDurationChange, onDelete, onMoveUp, onMoveDown }) {
+export default function CaptionRow({
+  caption,
+  isActive,
+  isFirst,
+  isLast,
+  onDurationChange,
+  onResetDuration,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+}) {
   const rowRef = useRef(null);
 
   useEffect(() => {
@@ -17,7 +27,7 @@ export default function CaptionRow({ caption, isActive, isFirst, isLast, onDurat
   return (
     <div
       ref={rowRef}
-      className={`grid grid-cols-[1fr_70px_auto] items-center gap-2 border-b border-line py-2 last:border-b-0 transition-colors ${
+      className={`grid grid-cols-[1fr_70px_auto_auto] items-center gap-2 border-b border-line py-2 last:border-b-0 transition-colors ${
         isActive ? 'rounded-md border-l-[3px] border-l-gold bg-gold-tint/50 pl-2' : ''
       }`}
     >
@@ -32,6 +42,14 @@ export default function CaptionRow({ caption, isActive, isFirst, isLast, onDurat
         onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         className="w-16 rounded-md border border-line px-1.5 py-1 text-right text-xs"
       />
+      <button
+        type="button"
+        onClick={() => onResetDuration(caption.id)}
+        title="Reset to generated duration"
+        className="rounded border border-line px-1.5 py-1 text-[10px] text-ink-soft hover:border-gold hover:text-ink"
+      >
+        Reset
+      </button>
       <div className="flex items-center gap-0.5">
         <span className="text-[11px] text-ink-soft">sec</span>
         <button
