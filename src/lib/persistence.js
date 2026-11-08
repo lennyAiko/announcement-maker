@@ -50,6 +50,7 @@ export function saveState(state) {
     const serializable = {
       scriptText: state.scriptText,
       captions: state.captions,
+      photoMoments: state.photoMoments,
       bgType: state.bgType,
       bgColor: state.bgColor,
       textColor: state.textColor,

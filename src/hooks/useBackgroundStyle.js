@@ -9,20 +9,34 @@ import {
   DEFAULT_TEXT_POSITION,
 } from '../lib/constants';
 
-export function useBackgroundStyle(isAudioPlaying) {
+export function useBackgroundStyle(isAudioPlaying, initialStyle = {}) {
   const videoElRef = useRef(null);
   const imageRef = useRef(null);
   const imageObjectUrlRef = useRef(null);
   const videoObjectUrlRef = useRef(null);
 
-  const [bgType, setBgType] = useState('color');
-  const [bgColor, setBgColor] = useState(DEFAULT_BG_COLOR);
-  const [textColor, setTextColor] = useState(DEFAULT_TEXT_COLOR);
-  const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
-  const [fontFamily, setFontFamily] = useState(DEFAULT_FONT_FAMILY);
-  const [textPosition, setTextPosition] = useState(DEFAULT_TEXT_POSITION);
-  const [resolution, setResolution] = useState(DEFAULT_RESOLUTION);
-  const [speakingPace, setSpeakingPace] = useState(DEFAULT_PACE);
+  const [bgType, setBgType] = useState(initialStyle.bgType ?? 'color');
+  const [bgColor, setBgColor] = useState(
+    initialStyle.bgColor ?? DEFAULT_BG_COLOR,
+  );
+  const [textColor, setTextColor] = useState(
+    initialStyle.textColor ?? DEFAULT_TEXT_COLOR,
+  );
+  const [fontSize, setFontSize] = useState(
+    initialStyle.fontSize ?? DEFAULT_FONT_SIZE,
+  );
+  const [fontFamily, setFontFamily] = useState(
+    initialStyle.fontFamily ?? DEFAULT_FONT_FAMILY,
+  );
+  const [textPosition, setTextPosition] = useState(
+    initialStyle.textPosition ?? DEFAULT_TEXT_POSITION,
+  );
+  const [resolution, setResolution] = useState(
+    initialStyle.resolution ?? DEFAULT_RESOLUTION,
+  );
+  const [speakingPace, setSpeakingPace] = useState(
+    initialStyle.speakingPace ?? DEFAULT_PACE,
+  );
   const [imageFileName, setImageFileName] = useState('');
   const [videoFileName, setVideoFileName] = useState('');
   const [isImageReady, setIsImageReady] = useState(false);

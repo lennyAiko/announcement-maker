@@ -14,6 +14,7 @@ export function useCanvasPreview({
   textPosition,
   isImageReady,
   isVideoReady,
+  photoMoments,
   captions,
   isPlaying,
   gap = DEFAULT_CAPTION_GAP,
@@ -42,6 +43,7 @@ export function useCanvasPreview({
       isImageReady: inputs.isImageReady,
       bgVideo: videoElRef.current,
       isVideoReady: inputs.isVideoReady,
+      photoMoments: inputs.photoMoments,
       captions: inputs.captions,
       currentTime: audio ? audio.currentTime : 0,
       gap: inputs.gap,
@@ -58,11 +60,12 @@ export function useCanvasPreview({
       textPosition,
       isImageReady,
       isVideoReady,
+      photoMoments,
       captions,
       gap,
     };
     if (!suspendRef?.current) redrawNow();
-  }, [redrawNow, bgType, bgColor, textColor, fontSize, fontFamily, textPosition, isImageReady, isVideoReady, captions, gap, suspendRef]);
+  }, [redrawNow, bgType, bgColor, textColor, fontSize, fontFamily, textPosition, isImageReady, isVideoReady, photoMoments, captions, gap, suspendRef]);
 
   useEffect(() => {
     if (!isPlaying) return undefined;

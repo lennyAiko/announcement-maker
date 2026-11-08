@@ -108,6 +108,7 @@ export function renderFrame(ctx, params) {
     isImageReady,
     bgVideo,
     isVideoReady,
+    photoMoments = [],
     captions,
     currentTime,
     textColor,
@@ -132,6 +133,29 @@ export function renderFrame(ctx, params) {
     } else {
       drawCover(ctx, bgImage, bgImage.width, bgImage.height, w, h);
     }
+    drawGradientOverlay(ctx, w, h);
+  }
+
+  const activePhoto = photoMoments.reduce((active, photo) => {
+    if (
+      photo.image &&
+      currentTime >= photo.startTime &&
+      currentTime < photo.startTime + photo.duration &&
+      (!active || photo.startTime >= active.startTime)
+    ) {
+      return photo;
+    }
+    return active;
+  }, null);
+  if (activePhoto) {
+    drawCover(
+      ctx,
+      activePhoto.image,
+      activePhoto.image.width,
+      activePhoto.image.height,
+      w,
+      h,
+    );
     drawGradientOverlay(ctx, w, h);
   }
 

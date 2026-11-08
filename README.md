@@ -10,6 +10,7 @@ A browser-based tool that turns a script + narration audio into a captioned vide
 - **Intro video** — prepend an optional video clip, including its original audio, to the export
 - **Editable durations** — fine-tune any caption's display time, reorder or delete lines
 - **Customizable styling** — background color, image, or looping video; text color, size, position, and font family
+- **Timed photo moments** — add photos that replace the background at chosen times while narration and captions continue
 - **Speaking pace control** — adjust from 0.7× (fast) to 1.5× (slow) to match your narrator
 - **1080p support** — toggle between 720p and 1080p output
 - **Live preview** — canvas preview with play/pause/scrub controls, spacebar shortcut
@@ -32,7 +33,8 @@ The app opens at [http://localhost:3000](http://localhost:3000).
 3. **Add an intro (optional)** — upload a video clip to place before the announcement. Its video and audio are included in the final file.
 4. **Generate captions** — click "Generate captions" for automatic timing, or "Tap along" to mark timestamps live while listening. Fine-tune durations, reorder, or delete lines as needed.
 5. **Style the background** — choose solid color, image, or video loop. Adjust text appearance, resolution, and speaking pace.
-6. **Preview & export** — preview the announcement in the canvas, then click "Export video" to record the intro and announcement into one download.
+6. **Add photos to the timeline (optional)** — choose one or more photos, then set when each appears and how long it stays on screen.
+7. **Preview & export** — preview the announcement in the canvas, then click "Export video" to record the intro and announcement into one download.
 
 ## Commands
 

@@ -5,6 +5,7 @@ import BackgroundStyleStep from './components/BackgroundStyleStep';
 import CaptionsStep from './components/CaptionsStep';
 import ExportProgressModal from './components/ExportProgressModal';
 import IntroVideoStep from './components/IntroVideoStep';
+import PhotoMomentsStep from './components/PhotoMomentsStep';
 import PreviewExportStep from './components/PreviewExportStep';
 import ScriptStep from './components/ScriptStep';
 import { useBackgroundStyle } from './hooks/useBackgroundStyle';
@@ -13,6 +14,7 @@ import { useCaptions } from './hooks/useCaptions';
 import { useExportRecorder } from './hooks/useExportRecorder';
 import { useIntroVideo } from './hooks/useIntroVideo';
 import { useNarrationAudio } from './hooks/useNarrationAudio';
+import { usePhotoMoments } from './hooks/usePhotoMoments';
 import {
   currentCaptionAt,
   formatTime,
@@ -56,7 +58,6 @@ const App = () => {
     return null;
   });
   const [exportStatus, setExportStatus] = useState(null);
-  const [hasRestoredSettings, setHasRestoredSettings] = useState(false);
   const mediaOperationsRef = useRef({});
   const exportPreviewSuspendRef = useRef(false);
 
@@ -114,7 +115,7 @@ const App = () => {
     clearImageFile,
     clearVideoFile,
     seekVideoToAudioTime,
-  } = useBackgroundStyle(isPlaying);
+  } = useBackgroundStyle(isPlaying, initialSaved ?? {});
 
   const {
     captions,
@@ -131,6 +132,16 @@ const App = () => {
     cancelTapMode,
   } = useCaptions(
     Array.isArray(initialSaved?.captions) ? initialSaved.captions : [],
+  );
+  const {
+    photoMoments,
+    addPhoto,
+    restorePhoto,
+    updatePhoto,
+    removePhoto,
+    clearPhotos,
+  } = usePhotoMoments(
+    Array.isArray(initialSaved?.photoMoments) ? initialSaved.photoMoments : [],
   );
 
   const gap = DEFAULT_CAPTION_GAP;
@@ -154,6 +165,7 @@ const App = () => {
     textPosition,
     isImageReady,
     isVideoReady,
+    photoMoments,
     captions,
     isPlaying,
     gap,
@@ -221,6 +233,7 @@ const App = () => {
       'intro',
       'background-image',
       'background-video',
+      ...photoMoments.map((photo) => `photo:${photo.id}`),
     ];
     Promise.all(
       mediaKeys.map((key) =>
@@ -236,6 +249,7 @@ const App = () => {
     removeIntroFile();
     clearImageFile();
     clearVideoFile();
+    clearPhotos();
     clearCaptions();
     cancelTapMode();
     setScriptText('');
@@ -249,6 +263,39 @@ const App = () => {
     setSpeakingPace(DEFAULT_PACE);
     setSelectedExportFormat(supportedFormats[0]?.id ?? '');
     setGenStatus({ tone: 'ok', message: 'Session cleared.' });
+  };
+
+  const handleAddPhoto = async (file, startTime, duration) => {
+    try {
+      const photo = await addPhoto(file, startTime, duration);
+      queueMediaOperation(`photo:${photo.id}`, () =>
+        saveMedia(`photo:${photo.id}`, file),
+      ).catch((error) => {
+        setGenStatus({
+          tone: 'warn',
+          message: `Could not cache ${file.name}: ${error.message}`,
+        });
+      });
+      return true;
+    } catch (error) {
+      setGenStatus({
+        tone: 'warn',
+        message: error.message,
+      });
+      return false;
+    }
+  };
+
+  const handleRemovePhoto = (id) => {
+    removePhoto(id);
+    queueMediaOperation(`photo:${id}`, () => clearMedia(`photo:${id}`)).catch(
+      (error) => {
+        setGenStatus({
+          tone: 'warn',
+          message: `Could not clear cached photo: ${error.message}`,
+        });
+      },
+    );
   };
 
   const handleGenerate = () => {
@@ -347,22 +394,6 @@ const App = () => {
 
   const handleScrubCommit = () => endScrub();
 
-  // --- restore saved style settings ---
-  useEffect(() => {
-    if (initialSaved) {
-      if (initialSaved.bgType) setBgType(initialSaved.bgType);
-      if (initialSaved.bgColor) setBgColor(initialSaved.bgColor);
-      if (initialSaved.textColor) setTextColor(initialSaved.textColor);
-      if (initialSaved.fontSize) setFontSize(initialSaved.fontSize);
-      if (initialSaved.fontFamily) setFontFamily(initialSaved.fontFamily);
-      if (initialSaved.textPosition) setTextPosition(initialSaved.textPosition);
-      if (initialSaved.resolution) setResolution(initialSaved.resolution);
-      if (initialSaved.speakingPace) setSpeakingPace(initialSaved.speakingPace);
-    }
-    setHasRestoredSettings(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // --- restore uploaded media from IndexedDB ---
   useEffect(() => {
     let isCurrent = true;
@@ -378,6 +409,27 @@ const App = () => {
         if (intro) loadIntroFile(intro);
         if (backgroundImage) loadImageFile(backgroundImage);
         if (backgroundVideo) loadVideoFile(backgroundVideo);
+        const photoLoads = Promise.allSettled(
+          (initialSaved?.photoMoments ?? []).map(async (photo) => {
+            const file = await loadMedia(`photo:${photo.id}`);
+            if (!file) {
+              throw new Error(`Photo "${photo.fileName}" could not be restored.`);
+            }
+            await restorePhoto(file, photo);
+          }),
+        );
+        photoLoads.then((results) => {
+          if (!isCurrent) return;
+          const failedPhotos = results.filter(
+            (result) => result.status === 'rejected',
+          );
+          if (failedPhotos.length > 0) {
+            setGenStatus({
+              tone: 'warn',
+              message: `${failedPhotos.length} saved photo${failedPhotos.length === 1 ? '' : 's'} could not be restored. Remove and add them again.`,
+            });
+          }
+        });
         if (!audio && initialSaved?.audioFileName) {
           setGenStatus({
             tone: 'warn',
@@ -395,7 +447,7 @@ const App = () => {
     return () => {
       isCurrent = false;
     };
-  }, [loadFile, loadIntroFile, loadImageFile, loadVideoFile]);
+  }, [loadFile, loadIntroFile, loadImageFile, loadVideoFile, restorePhoto]);
 
   // --- sync refs for keyboard handler ---
   useEffect(() => {
@@ -406,10 +458,17 @@ const App = () => {
 
   // --- localStorage save on changes ---
   useEffect(() => {
-    if (!hasRestoredSettings) return;
     saveState({
       scriptText,
       captions,
+      photoMoments: photoMoments.map(
+        ({ id, fileName, startTime, duration }) => ({
+          id,
+          fileName,
+          startTime,
+          duration,
+        }),
+      ),
       bgType,
       bgColor,
       textColor,
@@ -425,6 +484,7 @@ const App = () => {
   }, [
     scriptText,
     captions,
+    photoMoments,
     bgType,
     bgColor,
     textColor,
@@ -436,7 +496,6 @@ const App = () => {
     selectedExportFormat,
     fileName,
     audioDuration,
-    hasRestoredSettings,
   ]);
 
   // --- tap-to-time: pause audio when tap mode auto-finishes ---
@@ -563,6 +622,15 @@ const App = () => {
             onClearVideo={() =>
               handleClearMedia('background-video', clearVideoFile)
             }
+          />
+          <PhotoMomentsStep
+            photoMoments={photoMoments}
+            audioDuration={audioDuration}
+            currentTime={currentTime}
+            isExporting={isExporting}
+            onAddPhoto={handleAddPhoto}
+            onUpdatePhoto={updatePhoto}
+            onRemovePhoto={handleRemovePhoto}
           />
         </div>
 

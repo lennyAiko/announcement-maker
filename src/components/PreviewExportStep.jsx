@@ -31,7 +31,7 @@ export default function PreviewExportStep({
 
   return (
     <div className="sticky top-5">
-      <StepCard number={6} title="Preview & export">
+      <StepCard number={7} title="Preview & export">
         <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black shadow-lg">
           <canvas
             ref={canvasRef}
