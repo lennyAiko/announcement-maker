@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { releaseCoverLayers } from '../lib/imagePrep';
+import { releaseCoverLayers, waitForImageDecode } from '../lib/imagePrep';
 
 let nextPhotoId = 0;
 
@@ -21,7 +21,6 @@ export function usePhotoMoments(initialMoments = []) {
   const loadPhoto = useCallback(async (file, metadata) => {
     const objectUrl = URL.createObjectURL(file);
     const image = new Image();
-    image.decoding = 'async';
     try {
       await new Promise((resolve, reject) => {
         image.onload = resolve;
@@ -30,7 +29,7 @@ export function usePhotoMoments(initialMoments = []) {
       });
       // Make sure the bitmap is ready before it can be drawn — an undecoded
       // photo renders as a blank frame in the preview and in the export.
-      await image.decode().catch(() => {});
+      await waitForImageDecode(image);
     } catch (error) {
       URL.revokeObjectURL(objectUrl);
       throw error;

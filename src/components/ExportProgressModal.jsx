@@ -8,7 +8,8 @@ export default function ExportProgressModal({ open, progress, message }) {
       <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-2xl">
         <h2 className="mb-1 font-serif text-lg font-normal text-ink">Exporting video…</h2>
         <p className="mb-4 text-[13px] leading-relaxed text-ink-soft">
-          Please keep this tab open and don't switch apps until this finishes.
+          Keep this window open until this finishes. You can keep working in
+          other tabs.
         </p>
 
         <div className="h-2.5 w-full overflow-hidden rounded-full bg-line">

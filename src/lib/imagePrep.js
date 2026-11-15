@@ -34,6 +34,30 @@ function createCanvas(width, height) {
 }
 
 /**
+ * `HTMLImageElement.decode()` is a useful "is the bitmap ready to draw" signal,
+ * but it is not guaranteed to settle — it can hang forever for an image whose
+ * decode is deferred by the browser. Never await it without a deadline.
+ */
+export function waitForImageDecode(image, timeoutMs = 600) {
+  if (!image || typeof image.decode !== 'function') return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    try {
+      image.decode().then(finish, finish);
+    } catch {
+      finish();
+    }
+  });
+}
+
+/**
  * Natural pixel size of anything drawImage accepts (image, canvas, video).
  */
 export function getSourceSize(source) {

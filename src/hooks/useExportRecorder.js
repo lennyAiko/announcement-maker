@@ -5,6 +5,7 @@ import {
   EXPORT_FORMAT_CANDIDATES,
 } from '../lib/constants';
 import { drawCover, getCoverLayer } from '../lib/imagePrep';
+import { createAudioFrameClock } from '../lib/frameClock';
 
 function getSupportedFormats(RecorderCtor) {
   if (!RecorderCtor) return [];
@@ -121,36 +122,42 @@ function waitForPlaybackStart(media, timeoutMs = 4000) {
       return;
     }
     let settled = false;
-    let rafId = 0;
+    let timer = 0;
+    let deadline = 0;
     const finish = () => {
       if (settled) return;
       settled = true;
-      if (rafId) cancelAnimationFrame(rafId);
       clearTimeout(timer);
+      clearTimeout(deadline);
       resolve();
     };
-    const timer = setTimeout(finish, timeoutMs);
     const check = () => {
       if (media.currentTime > 0.001 || media.ended) {
         finish();
         return;
       }
-      rafId = requestAnimationFrame(check);
+      // setTimeout rather than requestAnimationFrame: rAF is throttled as soon
+      // as the page stops being painted, and this needs to resolve promptly.
+      timer = setTimeout(check, 8);
     };
-    rafId = requestAnimationFrame(check);
+    deadline = setTimeout(finish, timeoutMs);
+    check();
   });
 }
 
 /**
  * Drives the canvas at a steady `fps` for as long as the export runs.
  *
- * requestAnimationFrame is the right clock while the tab is visible, but it
- * stops completely in a hidden tab — which is how a 3 minute export ends up
- * with a minutes-long frozen stretch in the middle of the video. When the tab
- * is hidden we fall back to a timer (throttled, but still ticking) and the UI
- * warns the user.
+ * The audio-worklet clock is used when available because it keeps ticking while
+ * the page is not being painted. requestAnimationFrame is the fallback while the
+ * tab is visible, and a timer (throttled, but still ticking) when it is hidden.
  */
-function startFramePump({ fps, onFrame }) {
+function startFramePump({ fps, onFrame, clock }) {
+  if (clock) {
+    clock.start(onFrame);
+    return () => clock.stop();
+  }
+
   const interval = 1000 / Math.max(1, fps);
   let rafId = 0;
   let timerId = 0;
@@ -275,6 +282,7 @@ export function useExportRecorder({
     let mixDest = null;
     let stopPump = null;
     let wakeLock = null;
+    let frameClock = null;
     const originalAudioVolume = audio.volume;
     const originalAudioLoop = audio.loop;
 
@@ -301,6 +309,10 @@ export function useExportRecorder({
         canvasStream = null;
       }
       canvasTrack = null;
+      if (frameClock) {
+        frameClock.stop();
+        frameClock = null;
+      }
       audio.volume = originalAudioVolume;
       audio.loop = originalAudioLoop;
       if (suspendPreviewRef) suspendPreviewRef.current = false;
@@ -382,6 +394,10 @@ export function useExportRecorder({
       source.connect(mixDest);
       const introSource = getIntroSource(audioCtx);
       if (introSource) introSource.connect(mixDest);
+
+      // Prefer the audio-driven clock so frames keep flowing even when the page
+      // is not being painted (background tab, minimised window).
+      frameClock = await createAudioFrameClock(audioCtx, fps);
 
       const combined = new MediaStream([
         ...canvasStream.getVideoTracks(),
@@ -535,7 +551,9 @@ export function useExportRecorder({
               activeFinish = finish;
               activeDraw = drawFrame;
               startRecorder();
-              if (!stopPump) stopPump = startFramePump({ fps, onFrame });
+              if (!stopPump) {
+                stopPump = startFramePump({ fps, onFrame, clock: frameClock });
+              }
             })
             .catch((error) => finish(error));
         });
@@ -560,13 +578,13 @@ export function useExportRecorder({
         await narrationStarted;
         onStatus(
           '',
-          'Recording announcement... keep this tab visible until it finishes.',
+          'Recording announcement... keep this window open until it finishes.',
         );
         await runPhase(audio, redrawAnnouncement);
       } else {
         onStatus(
           '',
-          'Recording announcement... keep this tab visible until it finishes.',
+          'Recording announcement... keep this window open until it finishes.',
         );
         await runPhase(audio, redrawAnnouncement);
       }
@@ -584,7 +602,7 @@ export function useExportRecorder({
         setIsExporting(false);
         onStatus(
           'warn',
-          'Recording stopped before it finished. Keep this tab visible during the export and try again.',
+          'Recording stopped before it finished. Keep this window open during the export and try again.',
         );
       }
     } catch (err) {
@@ -596,7 +614,7 @@ export function useExportRecorder({
       setIsExporting(false);
       onStatus(
         'warn',
-        `Export failed${err.name ? ` (${err.name})` : ''}: ${err.message}. Keep this tab visible and try again; if this continues, try Chrome or Edge.`,
+        `Export failed${err.name ? ` (${err.name})` : ''}: ${err.message}. Keep this window open and try again; if this continues, try Chrome or Edge.`,
       );
     }
   }, [
@@ -636,20 +654,20 @@ export function useExportRecorder({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isExporting]);
 
-  // Hidden tabs stop requestAnimationFrame, which punches a frozen gap into the
-  // recording. Warn instead of silently shipping a broken file.
+  // Frames are pushed from the audio clock, so switching tabs no longer stops
+  // the recording, but the window still has to stay open.
   useEffect(() => {
     if (!isExporting) return undefined;
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
         onStatus(
           'warn',
-          'This tab is in the background. Bring it back to the front — background tabs stop drawing frames and the exported video will freeze.',
+          'This tab is in the background. The export keeps recording, but keep the window open and come back before it finishes.',
         );
       } else {
         onStatus(
           '',
-          'Recording announcement... keep this tab visible until it finishes.',
+          'Recording announcement... keep this window open until it finishes.',
         );
       }
     };

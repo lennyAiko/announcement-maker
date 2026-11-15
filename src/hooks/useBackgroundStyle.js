@@ -8,6 +8,7 @@ import {
   DEFAULT_TEXT_COLOR,
   DEFAULT_TEXT_POSITION,
 } from '../lib/constants';
+import { waitForImageDecode } from '../lib/imagePrep';
 
 export function useBackgroundStyle(isAudioPlaying, initialStyle = {}) {
   const videoElRef = useRef(null);
@@ -53,18 +54,13 @@ export function useBackgroundStyle(isAudioPlaying, initialStyle = {}) {
     setImageFileName(file.name);
     setIsImageReady(false);
     const img = new Image();
-    img.decoding = 'async';
     img.onload = async () => {
       if (imageObjectUrlRef.current !== url) return;
       // onload can fire while the bitmap is still being decoded. Drawing a
       // half-decoded image silently produces a blank frame, which is exactly
-      // what shows up as a black/frozen first frame in an export.
-      try {
-        await img.decode();
-      } catch {
-        // Safari rejects decode() for some already-loaded images; onload is
-        // enough in that case.
-      }
+      // what shows up as a black/frozen first frame in an export. This helper
+      // has a deadline because decode() is allowed to never settle.
+      await waitForImageDecode(img);
       if (imageObjectUrlRef.current !== url) return;
       imageRef.current = img;
       setIsImageReady(true);
