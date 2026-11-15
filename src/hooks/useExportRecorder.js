@@ -107,6 +107,41 @@ function isMediaFinished(media) {
 }
 
 /**
+ * Resolves once `media` has actually started advancing.
+ *
+ * `play()` resolving only means playback was allowed, not that the playhead
+ * moved. Starting the recorder before that punches a frozen stretch into the
+ * video track while the audio track is normalised to 0 — the result is a video
+ * that freezes at the start and drifts out of sync with the narration.
+ */
+function waitForPlaybackStart(media, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    if (!media || media.currentTime > 0.001 || media.ended) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    let rafId = 0;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    const check = () => {
+      if (media.currentTime > 0.001 || media.ended) {
+        finish();
+        return;
+      }
+      rafId = requestAnimationFrame(check);
+    };
+    rafId = requestAnimationFrame(check);
+  });
+}
+
+/**
  * Drives the canvas at a steady `fps` for as long as the export runs.
  *
  * requestAnimationFrame is the right clock while the tab is visible, but it
@@ -439,10 +474,31 @@ export function useExportRecorder({
         }
       };
 
-      // Draw frame 0 before the recorder starts so the first frame in the file
-      // is the real first frame, not whatever the preview was showing.
-      pushFrame(intro ? drawIntroFrame : redrawAnnouncement);
-      recorder.start(1000);
+      // One frame pump for the whole export. It keeps pushing frames across the
+      // intro -> announcement hand-off, where the media is paused, rewound and
+      // restarted; stopping it there left a frozen gap in the recording.
+      let activeDraw = intro ? drawIntroFrame : redrawAnnouncement;
+      let activeMedia = null;
+      let activeFinish = null;
+      let recorderStarted = false;
+
+      const onFrame = () => {
+        if (activeMedia && isMediaFinished(activeMedia)) {
+          activeFinish?.();
+          return;
+        }
+        pushFrame(activeDraw);
+      };
+
+      // The recorder must not start until the playhead is moving: any delay
+      // between start() and the first audio sample shifts the whole video track
+      // against the audio track (frozen first frame, then permanent drift).
+      const startRecorder = () => {
+        if (recorderStarted) return;
+        recorderStarted = true;
+        pushFrame(activeDraw);
+        recorder.start(1000);
+      };
 
       const runPhase = (media, drawFrame) =>
         new Promise((resolve, reject) => {
@@ -450,9 +506,9 @@ export function useExportRecorder({
           const finish = (error) => {
             if (settled) return;
             settled = true;
-            if (stopPump) {
-              stopPump();
-              stopPump = null;
+            if (activeMedia === media) {
+              activeMedia = null;
+              activeFinish = null;
             }
             media.removeEventListener('ended', handleEnded);
             media.removeEventListener('error', handleError);
@@ -464,19 +520,24 @@ export function useExportRecorder({
           const handleError = () =>
             finish(new Error('A media file could not be played during export'));
           const handleProgress = () => updateProgress(media);
-          const onFrame = () => {
-            if (isMediaFinished(media)) {
-              finish();
-              return;
-            }
-            pushFrame(drawFrame);
-          };
 
           media.addEventListener('ended', handleEnded);
           media.addEventListener('error', handleError);
           media.addEventListener('timeupdate', handleProgress);
-          stopPump = startFramePump({ fps, onFrame });
-          media.play().catch((error) => finish(error));
+
+          media
+            .play()
+            .then(async () => {
+              if (settled) return;
+              await waitForPlaybackStart(media);
+              if (settled) return;
+              activeMedia = media;
+              activeFinish = finish;
+              activeDraw = drawFrame;
+              startRecorder();
+              if (!stopPump) stopPump = startFramePump({ fps, onFrame });
+            })
+            .catch((error) => finish(error));
         });
 
       if (intro) {
@@ -501,9 +562,6 @@ export function useExportRecorder({
           '',
           'Recording announcement... keep this tab visible until it finishes.',
         );
-        // Cut to the announcement immediately so its first frame is not held
-        // back until the frame pump's next tick.
-        pushFrame(redrawAnnouncement);
         await runPhase(audio, redrawAnnouncement);
       } else {
         onStatus(

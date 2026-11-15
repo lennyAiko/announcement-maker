@@ -18,12 +18,21 @@ export const FONT_FAMILY_OPTIONS = [
   { value: 'sans-serif', label: 'Sans-serif' },
   { value: 'serif', label: 'Serif (Georgia)' },
   { value: 'rounded', label: 'Rounded' },
+  { value: 'condensed', label: 'Condensed (Impact)' },
+  { value: 'mono', label: 'Typewriter' },
+  { value: 'display', label: 'Bold display' },
 ];
 
 export const FONT_FAMILY_STACKS = {
   'sans-serif': '-apple-system, Helvetica, Arial, sans-serif',
   serif: 'Georgia, "Times New Roman", serif',
-  rounded: '"Nunito", "Segoe UI", system-ui, sans-serif',
+  rounded:
+    'ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", "Segoe UI", system-ui, sans-serif',
+  condensed:
+    'Impact, Haettenschweiler, "Arial Narrow Bold", "Arial Narrow", "Helvetica Neue Condensed", sans-serif',
+  mono: '"Courier New", Courier, "Lucida Console", monospace',
+  display:
+    '"Arial Black", "Segoe UI Black", "Arial Bold", Gadget, "Helvetica Neue", sans-serif',
 };
 
 export const FONT_SIZE_OPTIONS = [
