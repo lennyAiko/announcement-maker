@@ -68,9 +68,12 @@ export const EXPORT_FORMAT_CANDIDATES = [
     id: 'webm',
     label: 'WebM',
     extension: 'webm',
+    // VP8 is listed first on purpose: VP9 encoding at 1080p cannot always keep
+    // up with realtime recording, and dropped frames show up as frozen spots
+    // in the exported file.
     mimeTypes: [
-      'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=vp9,opus',
       'video/webm',
     ],
   },
@@ -83,3 +86,7 @@ export const EXPORT_FORMAT_CANDIDATES = [
 ];
 
 export const EXPORT_FPS = { '720p': 30, '1080p': 30 };
+
+// MediaRecorder's default bitrate is low for full-frame photos and captions;
+// these keep text edges and photo detail crisp.
+export const EXPORT_BITRATE = { '720p': 6_000_000, '1080p': 12_000_000 };

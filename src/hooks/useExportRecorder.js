@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EXPORT_FPS, EXPORT_FORMAT_CANDIDATES } from '../lib/constants';
-import { drawCover } from '../lib/canvasDraw';
+import {
+  EXPORT_BITRATE,
+  EXPORT_FPS,
+  EXPORT_FORMAT_CANDIDATES,
+} from '../lib/constants';
+import { drawCover, getCoverLayer } from '../lib/imagePrep';
 
 function getSupportedFormats(RecorderCtor) {
   if (!RecorderCtor) return [];
@@ -58,11 +62,104 @@ function getVideoExtension(mimeType, fallbackExtension) {
   return fallbackExtension || 'webm';
 }
 
+const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
+ * Rewinds `media` and waits until the seek has actually landed, so a recording
+ * never starts on a stale frame or from a leftover playhead position.
+ */
+function seekTo(media, target, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    if (!media) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      media.removeEventListener('seeked', finish);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    if (Math.abs(media.currentTime - target) < 0.01) {
+      finish();
+      return;
+    }
+    media.addEventListener('seeked', finish);
+    try {
+      media.currentTime = target;
+    } catch {
+      finish();
+    }
+  });
+}
+
+function isMediaFinished(media) {
+  if (!media) return true;
+  if (media.ended) return true;
+  return (
+    Number.isFinite(media.duration) &&
+    media.duration > 0 &&
+    media.currentTime >= media.duration - 0.05
+  );
+}
+
+/**
+ * Drives the canvas at a steady `fps` for as long as the export runs.
+ *
+ * requestAnimationFrame is the right clock while the tab is visible, but it
+ * stops completely in a hidden tab — which is how a 3 minute export ends up
+ * with a minutes-long frozen stretch in the middle of the video. When the tab
+ * is hidden we fall back to a timer (throttled, but still ticking) and the UI
+ * warns the user.
+ */
+function startFramePump({ fps, onFrame }) {
+  const interval = 1000 / Math.max(1, fps);
+  let rafId = 0;
+  let timerId = 0;
+  let stopped = false;
+  let nextAt = performance.now() + interval;
+
+  const tick = () => {
+    if (stopped) return;
+    const now = performance.now();
+    if (now >= nextAt - 1) {
+      onFrame();
+      // Re-anchor on the original cadence so a late frame does not shift
+      // every frame after it.
+      const missed = Math.max(1, Math.floor((now - nextAt) / interval) + 1);
+      nextAt += interval * missed;
+    }
+    schedule();
+  };
+
+  const schedule = () => {
+    if (stopped) return;
+    if (document.visibilityState === 'hidden') {
+      timerId = setTimeout(tick, interval);
+    } else {
+      rafId = requestAnimationFrame(tick);
+    }
+  };
+
+  schedule();
+
+  return () => {
+    stopped = true;
+    if (rafId) cancelAnimationFrame(rafId);
+    if (timerId) clearTimeout(timerId);
+  };
+}
+
 export function useExportRecorder({
   audioRef,
   introVideoRef,
   hasIntro,
   videoElRef,
+  imageRef,
+  photoMoments = [],
   bgType,
   canvasRef,
   resolution,
@@ -81,8 +178,7 @@ export function useExportRecorder({
   );
   const [selectedExportFormat, setSelectedExportFormat] = useState(() =>
     supportedFormats.some(
-      (format) =>
-        format.id === initialExportFormat && format.supported,
+      (format) => format.id === initialExportFormat && format.supported,
     )
       ? initialExportFormat
       : (supportedFormats.find((format) => format.supported)?.id ?? ''),
@@ -93,8 +189,6 @@ export function useExportRecorder({
   const sourceNodeRef = useRef(null);
   const introSourceNodeRef = useRef(null);
   const downloadUrlRef = useRef(null);
-  const endedHandlerRef = useRef(null);
-  const timeUpdateHandlerRef = useRef(null);
 
   const getAudioGraph = useCallback(() => {
     if (!audioCtxRef.current) {
@@ -138,14 +232,49 @@ export function useExportRecorder({
     if (suspendPreviewRef) suspendPreviewRef.current = true;
     onStatus('', 'Preparing export...');
 
-    let recorder;
+    let recorder = null;
     let failed = false;
-    let originalAudioVolume = audio.volume;
-    let originalAudioLoop = audio.loop;
-    let intro;
-    let canvasStream;
-    let canvasTrack;
-    let canRequestCanvasFrame = false;
+    let intro = null;
+    let canvasStream = null;
+    let canvasTrack = null;
+    let mixDest = null;
+    let stopPump = null;
+    let wakeLock = null;
+    const originalAudioVolume = audio.volume;
+    const originalAudioLoop = audio.loop;
+
+    const releaseResources = () => {
+      if (stopPump) {
+        stopPump();
+        stopPump = null;
+      }
+      if (mixDest) {
+        try {
+          sourceNodeRef.current?.disconnect(mixDest);
+        } catch {
+          /* already disconnected */
+        }
+        try {
+          introSourceNodeRef.current?.disconnect(mixDest);
+        } catch {
+          /* already disconnected */
+        }
+        mixDest = null;
+      }
+      if (canvasStream) {
+        canvasStream.getTracks().forEach((track) => track.stop());
+        canvasStream = null;
+      }
+      canvasTrack = null;
+      audio.volume = originalAudioVolume;
+      audio.loop = originalAudioLoop;
+      if (suspendPreviewRef) suspendPreviewRef.current = false;
+      if (wakeLock) {
+        wakeLock.release?.().catch(() => {});
+        wakeLock = null;
+      }
+    };
+
     try {
       const RecorderCtor = window.MediaRecorder;
       if (!RecorderCtor) {
@@ -169,29 +298,74 @@ export function useExportRecorder({
       }
 
       const fps = EXPORT_FPS[resolution] || 30;
+
+      // --- 0. keep the screen awake so a long export is not interrupted ---
+      try {
+        if (navigator.wakeLock?.request) {
+          wakeLock = await navigator.wakeLock.request('screen');
+        }
+      } catch {
+        wakeLock = null;
+      }
+
+      // --- 1. pre-scale every image that can appear in the video ---
+      // Doing this up front means no frame during the recording pays the
+      // decode/scale cost of a multi-megapixel photo, which is what makes the
+      // recorder skip frames (and the exported video freeze on those frames).
+      const imageSources = [];
+      if (bgType === 'image' && imageRef?.current) {
+        imageSources.push({ source: imageRef.current, vignette: true });
+      }
+      for (const photo of photoMoments) {
+        // Photo moments are shown as-is, without the text vignette.
+        if (photo.image) imageSources.push({ source: photo.image, vignette: false });
+      }
+      if (imageSources.length > 0) {
+        // Bake in reverse so the photos that appear first are the most recently
+        // used layers and survive cache eviction if the project has many.
+        for (const { source, vignette } of [...imageSources].reverse()) {
+          getCoverLayer(source, canvas.width, canvas.height, { vignette });
+          // Yield so the progress modal can repaint between big images.
+          await nextTask();
+        }
+      }
+
+      // --- 2. build the recording graph ---
       canvasStream = canvas.captureStream(0);
       canvasTrack = canvasStream.getVideoTracks()[0];
-      canRequestCanvasFrame = typeof canvasTrack?.requestFrame === 'function';
+      const canRequestCanvasFrame =
+        typeof canvasTrack?.requestFrame === 'function';
       if (!canRequestCanvasFrame) {
         canvasStream.getTracks().forEach((track) => track.stop());
         canvasStream = canvas.captureStream(fps);
         canvasTrack = canvasStream.getVideoTracks()[0];
       }
+
       const { audioCtx, source } = getAudioGraph();
-      const audioContextReady = audioCtx.resume();
-      const dest = audioCtx.createMediaStreamDestination();
-      source.connect(dest);
+      await audioCtx.resume();
+      mixDest = audioCtx.createMediaStreamDestination();
+      source.connect(mixDest);
       const introSource = getIntroSource(audioCtx);
-      if (introSource) introSource.connect(dest);
+      if (introSource) introSource.connect(mixDest);
 
       const combined = new MediaStream([
         ...canvasStream.getVideoTracks(),
-        ...dest.stream.getAudioTracks(),
+        ...mixDest.stream.getAudioTracks(),
       ]);
 
-      recorder = selectedFormat.mimeType
-        ? new RecorderCtor(combined, { mimeType: selectedFormat.mimeType })
-        : new RecorderCtor(combined);
+      const bitrate = EXPORT_BITRATE[resolution];
+      const recorderOptions = {
+        ...(selectedFormat.mimeType
+          ? { mimeType: selectedFormat.mimeType }
+          : {}),
+        ...(bitrate ? { videoBitsPerSecond: bitrate } : {}),
+      };
+      try {
+        recorder = new RecorderCtor(combined, recorderOptions);
+      } catch {
+        recorder = new RecorderCtor(combined);
+      }
+
       const mimeType =
         recorder.mimeType || selectedFormat.mimeType || 'video/webm';
       chunksRef.current = [];
@@ -199,17 +373,8 @@ export function useExportRecorder({
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
-        source.disconnect(dest);
-        if (introSource) introSource.disconnect(dest);
-        canvasStream.getTracks().forEach((track) => track.stop());
-        audio.volume = originalAudioVolume;
-        audio.loop = originalAudioLoop;
-        if (suspendPreviewRef) suspendPreviewRef.current = false;
+        releaseResources();
         if (failed) return;
-        if (timeUpdateHandlerRef.current) {
-          audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
-          timeUpdateHandlerRef.current = null;
-        }
         const blob = new Blob(chunksRef.current, { type: mimeType });
         const url = URL.createObjectURL(blob);
         downloadUrlRef.current = url;
@@ -225,21 +390,19 @@ export function useExportRecorder({
         );
       };
 
+      // --- 3. rewind every source before the first frame is drawn ---
       intro = hasIntro ? introVideoRef.current : null;
-      originalAudioVolume = audio.volume;
-      originalAudioLoop = audio.loop;
-      audio.currentTime = 0;
-      if (intro) Reflect.set(intro, 'currentTime', 0);
-      if (bgType === 'video' && videoElRef.current)
-        videoElRef.current.currentTime = 0;
-      if (intro) {
-        audio.volume = 0;
-        audio.loop = true;
+      audio.pause();
+      audio.loop = false;
+      await seekTo(audio, 0);
+      if (intro) await seekTo(intro, 0);
+      if (bgType === 'video' && videoElRef.current) {
+        await seekTo(videoElRef.current, 0);
       }
 
-      recorder.start();
-
-      const totalDuration = audio.duration + (intro?.duration || 0);
+      const totalDuration =
+        (Number.isFinite(audio.duration) ? audio.duration : 0) +
+        (intro && Number.isFinite(intro.duration) ? intro.duration : 0);
       let completedDuration = 0;
       const updateProgress = (media) => {
         if (totalDuration > 0) {
@@ -252,131 +415,130 @@ export function useExportRecorder({
         }
       };
 
-      const playToEnd = (media, drawFrame, startPlayback = true) =>
+      const pushFrame = (drawFrame) => {
+        try {
+          drawFrame?.();
+        } catch {
+          // Never let one bad frame abort the whole export.
+        }
+        if (canRequestCanvasFrame) {
+          try {
+            canvasTrack.requestFrame();
+          } catch {
+            /* recorder already stopped */
+          }
+        }
+      };
+
+      const ctx = canvas.getContext('2d');
+      const drawIntroFrame = () => {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (intro.readyState >= 2) {
+          drawCover(ctx, intro, canvas.width, canvas.height);
+        }
+      };
+
+      // Draw frame 0 before the recorder starts so the first frame in the file
+      // is the real first frame, not whatever the preview was showing.
+      pushFrame(intro ? drawIntroFrame : redrawAnnouncement);
+      recorder.start(1000);
+
+      const runPhase = (media, drawFrame) =>
         new Promise((resolve, reject) => {
-          let animationFrame;
-          let lastFrameTime = -Infinity;
-          const draw = (timestamp) => {
-            if (timestamp - lastFrameTime >= 1000 / fps) {
-              drawFrame?.();
-              if (canRequestCanvasFrame) canvasTrack.requestFrame();
-              lastFrameTime = timestamp;
+          let settled = false;
+          const finish = (error) => {
+            if (settled) return;
+            settled = true;
+            if (stopPump) {
+              stopPump();
+              stopPump = null;
             }
-            animationFrame = requestAnimationFrame(draw);
-          };
-          const cleanup = () => {
             media.removeEventListener('ended', handleEnded);
             media.removeEventListener('error', handleError);
             media.removeEventListener('timeupdate', handleProgress);
-            if (animationFrame) cancelAnimationFrame(animationFrame);
+            if (error) reject(error);
+            else resolve();
           };
-          const handleEnded = () => {
-            cleanup();
-            resolve();
-          };
-          const handleError = () => {
-            cleanup();
-            reject(new Error('A media file could not be played during export'));
-          };
+          const handleEnded = () => finish();
+          const handleError = () =>
+            finish(new Error('A media file could not be played during export'));
           const handleProgress = () => updateProgress(media);
-          media.addEventListener('ended', handleEnded, { once: true });
-          media.addEventListener('error', handleError, { once: true });
+          const onFrame = () => {
+            if (isMediaFinished(media)) {
+              finish();
+              return;
+            }
+            pushFrame(drawFrame);
+          };
+
+          media.addEventListener('ended', handleEnded);
+          media.addEventListener('error', handleError);
           media.addEventListener('timeupdate', handleProgress);
-          if (drawFrame) draw();
-          if (startPlayback) {
-            media.play().catch((error) => {
-              cleanup();
-              reject(error);
-            });
-          }
+          stopPump = startFramePump({ fps, onFrame });
+          media.play().catch((error) => finish(error));
         });
 
-      const handleEnded = () => recorder.stop();
-      endedHandlerRef.current = handleEnded;
-      onStatus(
-        '',
-        intro ? 'Recording intro video...' : 'Recording announcement...',
-      );
-
-      let announcementPlayback;
       if (intro) {
-        const ctx = canvas.getContext('2d');
-        const introPlayback = playToEnd(intro, () => {
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          if (intro.readyState >= 2) {
-            drawCover(
-              ctx,
-              intro,
-              intro.videoWidth,
-              intro.videoHeight,
-              canvas.width,
-              canvas.height,
-            );
-          }
-        });
+        onStatus('', 'Recording intro video...');
         // Play the narration muted (and looping) while the intro runs so the
         // browser's autoplay window stays open, then restart it from 0 for the
         // announcement once the intro finishes.
-        const audioStarted = audio.play();
-        await audioContextReady;
-        await Promise.all([introPlayback, audioStarted]);
-        completedDuration = intro.duration;
+        audio.volume = 0;
+        audio.loop = true;
+        const narrationStarted = audio.play().catch(() => {});
+        await runPhase(intro, drawIntroFrame);
+        completedDuration = Number.isFinite(intro.duration) ? intro.duration : 0;
+        audio.pause();
         audio.loop = false;
-        audio.currentTime = 0;
         audio.volume = originalAudioVolume;
-        if (bgType === 'video' && videoElRef.current)
-          videoElRef.current.currentTime = 0;
-        redrawAnnouncement();
+        await seekTo(audio, 0);
+        if (bgType === 'video' && videoElRef.current) {
+          await seekTo(videoElRef.current, 0);
+        }
+        await narrationStarted;
         onStatus(
           '',
-          'Recording announcement... keep this tab open until it finishes.',
+          'Recording announcement... keep this tab visible until it finishes.',
         );
-        audio.addEventListener('ended', handleEnded, { once: true });
-        const handleTimeUpdate = () => updateProgress(audio);
-        timeUpdateHandlerRef.current = handleTimeUpdate;
-        audio.addEventListener('timeupdate', handleTimeUpdate);
-        announcementPlayback = playToEnd(audio, redrawAnnouncement, false);
+        // Cut to the announcement immediately so its first frame is not held
+        // back until the frame pump's next tick.
+        pushFrame(redrawAnnouncement);
+        await runPhase(audio, redrawAnnouncement);
       } else {
-        await audioContextReady;
-        redrawAnnouncement();
         onStatus(
           '',
-          'Recording announcement... keep this tab open until it finishes.',
+          'Recording announcement... keep this tab visible until it finishes.',
         );
-        audio.addEventListener('ended', handleEnded, { once: true });
-        const handleTimeUpdate = () => updateProgress(audio);
-        timeUpdateHandlerRef.current = handleTimeUpdate;
-        audio.addEventListener('timeupdate', handleTimeUpdate);
-        announcementPlayback = playToEnd(audio, redrawAnnouncement);
+        await runPhase(audio, redrawAnnouncement);
       }
-      await announcementPlayback;
-      if (suspendPreviewRef) suspendPreviewRef.current = false;
+
+      // Hold the final frame long enough for the encoder to pick it up, then
+      // close the file.
+      pushFrame(redrawAnnouncement);
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.max(120, 2000 / fps)),
+      );
+      if (recorder.state === 'recording') {
+        recorder.stop();
+      } else {
+        releaseResources();
+        setIsExporting(false);
+        onStatus(
+          'warn',
+          'Recording stopped before it finished. Keep this tab visible during the export and try again.',
+        );
+      }
     } catch (err) {
       failed = true;
-      if (suspendPreviewRef) suspendPreviewRef.current = false;
+      releaseResources();
       if (recorder?.state === 'recording') recorder.stop();
-      canvasStream?.getTracks().forEach((track) => track.stop());
       audio.pause();
       if (intro) intro.pause();
-      if (endedHandlerRef.current) {
-        audio.removeEventListener('ended', endedHandlerRef.current);
-        endedHandlerRef.current = null;
-      }
-      if (timeUpdateHandlerRef.current) {
-        audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
-        timeUpdateHandlerRef.current = null;
-      }
-      audio.volume = originalAudioVolume;
-      audio.loop = originalAudioLoop;
       setIsExporting(false);
-      if (audio && timeUpdateHandlerRef.current) {
-        audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
-        timeUpdateHandlerRef.current = null;
-      }
       onStatus(
         'warn',
-        `Export failed${err.name ? ` (${err.name})` : ''}: ${err.message}. Keep Safari in the foreground and try again; if this continues, try Chrome or Edge.`,
+        `Export failed${err.name ? ` (${err.name})` : ''}: ${err.message}. Keep this tab visible and try again; if this continues, try Chrome or Edge.`,
       );
     }
   }, [
@@ -384,6 +546,8 @@ export function useExportRecorder({
     introVideoRef,
     hasIntro,
     videoElRef,
+    imageRef,
+    photoMoments,
     bgType,
     canvasRef,
     resolution,
@@ -398,18 +562,11 @@ export function useExportRecorder({
   ]);
 
   useEffect(() => {
-    const audio = audioRef.current;
     return () => {
-      if (audio && endedHandlerRef.current) {
-        audio.removeEventListener('ended', endedHandlerRef.current);
-      }
-      if (audio && timeUpdateHandlerRef.current) {
-        audio.removeEventListener('timeupdate', timeUpdateHandlerRef.current);
-      }
       if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
       if (audioCtxRef.current) audioCtxRef.current.close();
     };
-  }, [audioRef]);
+  }, []);
 
   useEffect(() => {
     if (!isExporting) return;
@@ -420,6 +577,28 @@ export function useExportRecorder({
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isExporting]);
+
+  // Hidden tabs stop requestAnimationFrame, which punches a frozen gap into the
+  // recording. Warn instead of silently shipping a broken file.
+  useEffect(() => {
+    if (!isExporting) return undefined;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        onStatus(
+          'warn',
+          'This tab is in the background. Bring it back to the front — background tabs stop drawing frames and the exported video will freeze.',
+        );
+      } else {
+        onStatus(
+          '',
+          'Recording announcement... keep this tab visible until it finishes.',
+        );
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isExporting, onStatus]);
 
   return {
     isExporting,

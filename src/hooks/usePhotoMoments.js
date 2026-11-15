@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { releaseCoverLayers } from '../lib/imagePrep';
 
 let nextPhotoId = 0;
 
@@ -20,12 +21,16 @@ export function usePhotoMoments(initialMoments = []) {
   const loadPhoto = useCallback(async (file, metadata) => {
     const objectUrl = URL.createObjectURL(file);
     const image = new Image();
+    image.decoding = 'async';
     try {
       await new Promise((resolve, reject) => {
         image.onload = resolve;
         image.onerror = () => reject(new Error(`Could not load ${file.name}.`));
         image.src = objectUrl;
       });
+      // Make sure the bitmap is ready before it can be drawn — an undecoded
+      // photo renders as a blank frame in the preview and in the export.
+      await image.decode().catch(() => {});
     } catch (error) {
       URL.revokeObjectURL(objectUrl);
       throw error;
@@ -74,22 +79,30 @@ export function usePhotoMoments(initialMoments = []) {
     );
   }, []);
 
-  const removePhoto = useCallback((id) => {
-    const objectUrl = objectUrlsRef.current.get(id);
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    objectUrlsRef.current.delete(id);
-    setPhotoMoments((previous) =>
-      previous.filter((moment) => moment.id !== id),
-    );
-  }, []);
+  const removePhoto = useCallback(
+    (id) => {
+      const removed = photoMoments.find((moment) => moment.id === id);
+      if (removed?.image) releaseCoverLayers(removed.image);
+      const objectUrl = objectUrlsRef.current.get(id);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrlsRef.current.delete(id);
+      setPhotoMoments((previous) =>
+        previous.filter((moment) => moment.id !== id),
+      );
+    },
+    [photoMoments],
+  );
 
   const clearPhotos = useCallback(() => {
+    for (const moment of photoMoments) {
+      if (moment.image) releaseCoverLayers(moment.image);
+    }
     for (const objectUrl of objectUrlsRef.current.values()) {
       URL.revokeObjectURL(objectUrl);
     }
     objectUrlsRef.current.clear();
     setPhotoMoments([]);
-  }, []);
+  }, [photoMoments]);
 
   useEffect(
     () => () => {

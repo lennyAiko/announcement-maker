@@ -44,7 +44,9 @@ export default function PhotoMomentsStep({
     <StepCard number={6} title="Add photos to the timeline">
       <p className="mb-3 text-[13px] leading-relaxed text-ink-soft">
         Play or scrub the preview to where a photo should appear, choose it, and
-        add it at that point. The narration and captions continue over the photo.
+        add it at that point. The photo takes over the whole frame at that
+        moment — narration keeps playing but captions are hidden while it is on
+        screen.
       </p>
       <div className="mb-3 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1.5 text-xs font-semibold text-ink-soft">

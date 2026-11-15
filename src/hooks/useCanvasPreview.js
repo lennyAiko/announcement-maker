@@ -18,6 +18,8 @@ export function useCanvasPreview({
   captions,
   isPlaying,
   gap = DEFAULT_CAPTION_GAP,
+  startPad = 0,
+  resolution,
   suspendRef,
 }) {
   const canvasRef = useRef(null);
@@ -29,6 +31,7 @@ export function useCanvasPreview({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const inputs = inputsRef.current;
+    if (!inputs) return;
     const audio = audioRef.current;
     renderFrame(ctx, {
       width: canvas.width,
@@ -47,6 +50,7 @@ export function useCanvasPreview({
       captions: inputs.captions,
       currentTime: audio ? audio.currentTime : 0,
       gap: inputs.gap,
+      startPad: inputs.startPad,
     });
   }, [audioRef, imageRef, videoElRef]);
 
@@ -63,9 +67,32 @@ export function useCanvasPreview({
       photoMoments,
       captions,
       gap,
+      startPad,
     };
     if (!suspendRef?.current) redrawNow();
-  }, [redrawNow, bgType, bgColor, textColor, fontSize, fontFamily, textPosition, isImageReady, isVideoReady, photoMoments, captions, gap, suspendRef]);
+  }, [
+    redrawNow,
+    bgType,
+    bgColor,
+    textColor,
+    fontSize,
+    fontFamily,
+    textPosition,
+    isImageReady,
+    isVideoReady,
+    photoMoments,
+    captions,
+    gap,
+    startPad,
+    resolution,
+    suspendRef,
+  ]);
+
+  // Changing the resolution re-sizes the canvas element, and resizing a canvas
+  // clears it. Without this the preview goes blank until the next redraw.
+  useEffect(() => {
+    if (!suspendRef?.current) redrawNow();
+  }, [resolution, redrawNow, suspendRef]);
 
   useEffect(() => {
     if (!isPlaying) return undefined;

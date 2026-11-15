@@ -169,6 +169,8 @@ const App = () => {
     captions,
     isPlaying,
     gap,
+    startPad: START_PAD,
+    resolution,
     suspendRef: exportPreviewSuspendRef,
   });
 
@@ -190,6 +192,8 @@ const App = () => {
     introVideoRef,
     hasIntro: isIntroReady,
     videoElRef,
+    imageRef,
+    photoMoments,
     bgType,
     canvasRef,
     resolution,
@@ -261,7 +265,9 @@ const App = () => {
     setTextPosition(DEFAULT_TEXT_POSITION);
     setResolution(DEFAULT_RESOLUTION);
     setSpeakingPace(DEFAULT_PACE);
-    setSelectedExportFormat(supportedFormats[0]?.id ?? '');
+    setSelectedExportFormat(
+      supportedFormats.find((format) => format.supported)?.id ?? '',
+    );
     setGenStatus({ tone: 'ok', message: 'Session cleared.' });
   };
 
@@ -663,7 +669,7 @@ const App = () => {
       <ExportProgressModal
         open={isExporting}
         progress={exportProgress}
-        message={exportStatus?.tone !== 'warn' ? exportStatus?.message : null}
+        message={exportStatus?.message}
       />
     </div>
   );

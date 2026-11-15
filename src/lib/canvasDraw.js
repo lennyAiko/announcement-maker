@@ -1,23 +1,11 @@
 import { FONT_FAMILY_STACKS, FADE_DURATION } from './constants';
 import { currentCaptionAt } from './captions';
+import { drawCover, drawGradientOverlay, getCoverLayer } from './imagePrep';
 
-export function drawCover(ctx, source, sw, sh, w, h) {
-  const ir = sw / sh;
-  const cr = w / h;
-  let dw, dh, dx, dy;
-  if (ir > cr) {
-    dh = h;
-    dw = h * ir;
-    dx = (w - dw) / 2;
-    dy = 0;
-  } else {
-    dw = w;
-    dh = w / ir;
-    dx = 0;
-    dy = (h - dh) / 2;
-  }
-  ctx.drawImage(source, dx, dy, dw, dh);
-}
+// Text layout is identical for every frame of a caption, so measuring it once
+// per (text, font, width) keeps the per-frame work down to two fillText passes.
+const METRICS_CACHE_LIMIT = 128;
+const metricsCache = new Map();
 
 function getCaptionLines(ctx, text, maxWidth) {
   const words = text.split(' ');
@@ -36,7 +24,7 @@ function getCaptionLines(ctx, text, maxWidth) {
   return lines;
 }
 
-function getCaptionMetrics(ctx, text, centerX, centerY, maxWidth, lineHeight) {
+function measureCaption(ctx, text, centerX, centerY, maxWidth, lineHeight) {
   const lines = getCaptionLines(ctx, text, maxWidth);
   let maxW = 0;
   const positioned = lines.map((l, i) => {
@@ -53,6 +41,30 @@ function getCaptionMetrics(ctx, text, centerX, centerY, maxWidth, lineHeight) {
   };
 }
 
+function getCaptionMetrics(ctx, text, centerX, centerY, maxWidth, lineHeight) {
+  const key = `${ctx.font}\u0000${maxWidth}\u0000${centerX}\u0000${centerY}\u0000${lineHeight}\u0000${text}`;
+  const cached = metricsCache.get(key);
+  if (cached) {
+    // Refresh recency so hot entries are not evicted first.
+    metricsCache.delete(key);
+    metricsCache.set(key, cached);
+    return cached;
+  }
+  const metrics = measureCaption(
+    ctx,
+    text,
+    centerX,
+    centerY,
+    maxWidth,
+    lineHeight,
+  );
+  if (metricsCache.size >= METRICS_CACHE_LIMIT) {
+    metricsCache.delete(metricsCache.keys().next().value);
+  }
+  metricsCache.set(key, metrics);
+  return metrics;
+}
+
 function drawCaptionBar(ctx, metrics, centerX, centerY, padX, padY) {
   const barW = metrics.maxWidth + padX * 2;
   const barH = metrics.totalHeight + padY * 2;
@@ -65,7 +77,12 @@ function drawCaptionBar(ctx, metrics, centerX, centerY, padX, padY) {
   ctx.lineTo(barX + barW - radius, barY);
   ctx.quadraticCurveTo(barX + barW, barY, barX + barW, barY + radius);
   ctx.lineTo(barX + barW, barY + barH - radius);
-  ctx.quadraticCurveTo(barX + barW, barY + barH, barX + barW - radius, barY + barH);
+  ctx.quadraticCurveTo(
+    barX + barW,
+    barY + barH,
+    barX + barW - radius,
+    barY + barH,
+  );
   ctx.lineTo(barX + radius, barY + barH);
   ctx.quadraticCurveTo(barX, barY + barH, barX, barY + barH - radius);
   ctx.lineTo(barX, barY + radius);
@@ -89,13 +106,19 @@ function drawCaptionText(ctx, metrics, textColor, strokeWidth) {
   }
 }
 
-function drawGradientOverlay(ctx, w, h) {
-  const grad = ctx.createRadialGradient(w / 2, h / 2, w * 0.35, w / 2, h / 2, w * 0.75);
-  grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(0.5, 'rgba(0,0,0,0.08)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.45)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, w, h);
+function findActivePhoto(photoMoments, currentTime) {
+  let active = null;
+  for (const photo of photoMoments) {
+    if (
+      photo.image &&
+      currentTime >= photo.startTime &&
+      currentTime < photo.startTime + photo.duration &&
+      (!active || photo.startTime >= active.startTime)
+    ) {
+      active = photo;
+    }
+  }
+  return active;
 }
 
 export function renderFrame(ctx, params) {
@@ -114,6 +137,7 @@ export function renderFrame(ctx, params) {
     textColor,
     fontSize,
     gap = 0,
+    startPad = 0,
     fontFamily = 'sans-serif',
     textPosition = 'center',
   } = params;
@@ -123,48 +147,44 @@ export function renderFrame(ctx, params) {
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, w, h);
 
-  const hasVisualBg =
-    (bgType === 'video' && bgVideo && isVideoReady && bgVideo.readyState >= 2) ||
-    (bgType === 'image' && bgImage && isImageReady);
+  const hasImageBg = bgType === 'image' && bgImage && isImageReady;
+  const hasVideoBg =
+    bgType === 'video' && bgVideo && isVideoReady && bgVideo.readyState >= 2;
 
-  if (hasVisualBg) {
-    if (bgType === 'video') {
-      drawCover(ctx, bgVideo, bgVideo.videoWidth, bgVideo.videoHeight, w, h);
-    } else {
-      drawCover(ctx, bgImage, bgImage.width, bgImage.height, w, h);
+  if (hasImageBg) {
+    // Pre-scaled once, so this is a 1:1 blit instead of a resize per frame.
+    const layer = getCoverLayer(bgImage, w, h, { vignette: true });
+    if (layer) ctx.drawImage(layer, 0, 0);
+    else {
+      drawCover(ctx, bgImage, w, h);
+      drawGradientOverlay(ctx, w, h);
     }
+  } else if (hasVideoBg) {
+    drawCover(ctx, bgVideo, w, h);
     drawGradientOverlay(ctx, w, h);
   }
 
-  const activePhoto = photoMoments.reduce((active, photo) => {
-    if (
-      photo.image &&
-      currentTime >= photo.startTime &&
-      currentTime < photo.startTime + photo.duration &&
-      (!active || photo.startTime >= active.startTime)
-    ) {
-      return photo;
-    }
-    return active;
-  }, null);
+  const activePhoto = findActivePhoto(photoMoments, currentTime);
   if (activePhoto) {
-    drawCover(
-      ctx,
-      activePhoto.image,
-      activePhoto.image.width,
-      activePhoto.image.height,
-      w,
-      h,
-    );
-    drawGradientOverlay(ctx, w, h);
+    // A photo moment is a clean still: the photo fills the frame with no
+    // vignette, no caption bar and no text over it.
+    const layer = getCoverLayer(activePhoto.image, w, h);
+    if (layer) ctx.drawImage(layer, 0, 0);
+    else drawCover(ctx, activePhoto.image, w, h);
+    ctx.globalAlpha = 1;
+    return;
   }
 
-  const result = currentCaptionAt(captions, currentTime, gap);
-  if (!result.text) return;
+  const result = currentCaptionAt(captions, currentTime, gap, startPad);
+  if (!result.text) {
+    ctx.globalAlpha = 1;
+    return;
+  }
 
   const scale = w / 960;
   const size = fontSize * 1.7 * scale;
-  const fontStack = FONT_FAMILY_STACKS[fontFamily] || FONT_FAMILY_STACKS['sans-serif'];
+  const fontStack =
+    FONT_FAMILY_STACKS[fontFamily] || FONT_FAMILY_STACKS['sans-serif'];
   ctx.font = `600 ${size}px ${fontStack}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -179,7 +199,14 @@ export function renderFrame(ctx, params) {
   const maxWidth = w * 0.78;
   const lineHeight = size * 1.25;
 
-  const metrics = getCaptionMetrics(ctx, result.text, w / 2, posY, maxWidth, lineHeight);
+  const metrics = getCaptionMetrics(
+    ctx,
+    result.text,
+    w / 2,
+    posY,
+    maxWidth,
+    lineHeight,
+  );
 
   let alpha = 1;
   const captionDuration = captions[result.index]?.duration || 0;
@@ -193,7 +220,10 @@ export function renderFrame(ctx, params) {
     alpha = Math.max(0, Math.min(1, alpha));
   }
 
-  if (alpha <= 0) return;
+  if (alpha <= 0) {
+    ctx.globalAlpha = 1;
+    return;
+  }
 
   ctx.globalAlpha = alpha;
 
