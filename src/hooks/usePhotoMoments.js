@@ -48,7 +48,7 @@ export function usePhotoMoments(initialMoments = []) {
   }, []);
 
   const addPhoto = useCallback(
-    async (file, startTime, duration) => {
+    async (file, startTime, duration, displayMode = 'cover') => {
       const start = Number.isFinite(startTime) ? Math.max(0, startTime) : 0;
       const length = Number.isFinite(duration)
         ? Math.max(0.1, duration)
@@ -58,6 +58,7 @@ export function usePhotoMoments(initialMoments = []) {
         fileName: file.name,
         startTime: start,
         duration: length,
+        displayMode,
       };
       await loadPhoto(file, metadata);
       return metadata;

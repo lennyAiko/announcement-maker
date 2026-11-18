@@ -166,11 +166,18 @@ export function renderFrame(ctx, params) {
 
   const activePhoto = findActivePhoto(photoMoments, currentTime);
   if (activePhoto) {
-    // A photo moment is a clean still: the photo fills the frame with no
-    // vignette, no caption bar and no text over it.
-    const layer = getCoverLayer(activePhoto.image, w, h);
-    if (layer) ctx.drawImage(layer, 0, 0);
-    else drawCover(ctx, activePhoto.image, w, h);
+    if (activePhoto.displayMode === 'original') {
+      const imgW = activePhoto.image.naturalWidth || activePhoto.image.width;
+      const imgH = activePhoto.image.naturalHeight || activePhoto.image.height;
+      const scale = Math.min(w / imgW, h / imgH, 1);
+      const dw = imgW * scale;
+      const dh = imgH * scale;
+      ctx.drawImage(activePhoto.image, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    } else {
+      const layer = getCoverLayer(activePhoto.image, w, h);
+      if (layer) ctx.drawImage(layer, 0, 0);
+      else drawCover(ctx, activePhoto.image, w, h);
+    }
     ctx.globalAlpha = 1;
     return;
   }

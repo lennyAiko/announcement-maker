@@ -271,9 +271,9 @@ const App = () => {
     setGenStatus({ tone: 'ok', message: 'Session cleared.' });
   };
 
-  const handleAddPhoto = async (file, startTime, duration) => {
+  const handleAddPhoto = async (file, startTime, duration, displayMode) => {
     try {
-      const photo = await addPhoto(file, startTime, duration);
+      const photo = await addPhoto(file, startTime, duration, displayMode);
       queueMediaOperation(`photo:${photo.id}`, () =>
         saveMedia(`photo:${photo.id}`, file),
       ).catch((error) => {

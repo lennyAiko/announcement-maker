@@ -17,6 +17,7 @@ export default function PhotoMomentsStep({
 }) {
   const [selectedFile, setSelectedFile] = useState(null);
   const [duration, setDuration] = useState(3);
+  const [displayMode, setDisplayMode] = useState('cover');
   const [error, setError] = useState('');
 
   const handleFileChange = (event) => {
@@ -32,7 +33,7 @@ export default function PhotoMomentsStep({
 
   const handleAddPhoto = async () => {
     if (!selectedFile) return;
-    const added = await onAddPhoto(selectedFile, currentTime, duration);
+    const added = await onAddPhoto(selectedFile, currentTime, duration, displayMode);
     if (added) setSelectedFile(null);
   };
 
@@ -61,6 +62,18 @@ export default function PhotoMomentsStep({
             <option value={5}>5 seconds</option>
             <option value={8}>8 seconds</option>
             <option value={10}>10 seconds</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1.5 text-xs font-semibold text-ink-soft">
+          Display mode
+          <select
+            value={displayMode}
+            onChange={(event) => setDisplayMode(event.target.value)}
+            disabled={isExporting}
+            className="rounded-md border border-line bg-card px-2.5 py-2 text-sm font-normal text-ink focus:border-gold focus:outline focus:outline-2 focus:outline-gold-tint"
+          >
+            <option value="cover">Cover (fill frame)</option>
+            <option value="original">Original size</option>
           </select>
         </label>
         <span className="pb-2 text-xs text-ink-soft">
@@ -123,9 +136,9 @@ export default function PhotoMomentsStep({
                 <p className="truncate text-sm font-medium text-ink">
                   {moment.fileName}
                 </p>
-                <p className="mt-1 text-xs text-ink-soft">
+                <p className="mt-1 flex flex-wrap items-center gap-x-1 text-xs text-ink-soft">
                   Starts at {formatTime(moment.startTime)} ·
-                  <label className="ml-1 inline-flex items-center gap-1">
+                  <label className="inline-flex items-center gap-1">
                     <span className="sr-only">Photo duration</span>
                     <select
                       value={moment.duration}
@@ -147,6 +160,23 @@ export default function PhotoMomentsStep({
                           {moment.duration} seconds
                         </option>
                       )}
+                    </select>
+                  </label>
+                  ·
+                  <label className="inline-flex items-center gap-1">
+                    <span className="sr-only">Display mode</span>
+                    <select
+                      value={moment.displayMode || 'cover'}
+                      disabled={isExporting}
+                      onChange={(event) =>
+                        onUpdatePhoto(moment.id, {
+                          displayMode: event.target.value,
+                        })
+                      }
+                      className="rounded border border-line bg-card px-1 py-0.5 text-xs text-ink focus:border-gold focus:outline focus:outline-2 focus:outline-gold-tint"
+                    >
+                      <option value="cover">Cover</option>
+                      <option value="original">Original</option>
                     </select>
                   </label>
                 </p>
